@@ -4,7 +4,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -75,6 +74,24 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     public Oid4vcContainer withSessionTranscript(String mode) {
         this.sessionTranscript = mode;
         return this;
+    }
+
+    /**
+     * Maps {@code localhost} inside the container to the Docker host via the
+     * {@code host-gateway} special address. This allows the wallet to reach
+     * services running on the host machine (e.g. an issuer or verifier started
+     * in the test) using {@code localhost:<port>}.
+     *
+     * <p>The {@code host-gateway} value is resolved by the Docker daemon to the
+     * host's internal IP address (typically {@code 172.17.0.1} on Linux or
+     * the VM gateway on Docker Desktop). It is equivalent to Docker's
+     * {@code --add-host=localhost:host-gateway} CLI flag.
+     *
+     * <p>Combine with {@link org.testcontainers.Testcontainers#exposeHostPorts(int...)}
+     * to make specific host ports accessible.
+     */
+    public Oid4vcContainer withHostAccess() {
+        return withExtraHost("localhost", "host-gateway");
     }
 
     @Override
@@ -160,12 +177,12 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return getBaseUrl() + "/api/statuslist";
     }
 
-    public ExecResult acceptCredentialOffer(String uri) {
-        return exec("oid4vc-dev", "wallet", "accept", "--json", uri);
+    public OfferResponse acceptCredentialOffer(String uri) {
+        return client().acceptCredentialOffer(uri);
     }
 
-    public ExecResult acceptPresentationRequest(String uri) {
-        return exec("oid4vc-dev", "wallet", "accept", "--auto-accept", "--json", uri);
+    public PresentationResponse acceptPresentationRequest(String uri) {
+        return client().acceptPresentationRequest(uri);
     }
 
     public List<Credential> listCredentials() {
@@ -177,14 +194,6 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
             cachedClient = new WalletClient(getBaseUrl());
         }
         return cachedClient;
-    }
-
-    private ExecResult exec(String... command) {
-        try {
-            return execInContainer(command);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to execute command in container", e);
-        }
     }
 
     private String resolveCustomPidJson() {

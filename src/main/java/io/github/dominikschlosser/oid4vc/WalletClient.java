@@ -76,6 +76,37 @@ public class WalletClient {
         setCredentialStatus(credentialId, 0);
     }
 
+    public PresentationResponse acceptPresentationRequest(String uri) {
+        String body = postJson(baseUrl + "/api/presentations", toJson(Map.of("uri", uri)));
+        try {
+            Map<String, Object> parsed = MAPPER.readValue(body, new TypeReference<>() {});
+            String redirectUri = (String) parsed.get("redirect_uri");
+            return new PresentationResponse(redirectUri, body);
+        } catch (IOException e) {
+            return new PresentationResponse(null, body);
+        }
+    }
+
+    public OfferResponse acceptCredentialOffer(String uri) {
+        String body = postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri)));
+        return new OfferResponse(body);
+    }
+
+    public void deleteCredential(String id) {
+        delete(baseUrl + "/api/credentials/" + id);
+    }
+
+    public boolean hasCredentialWithType(String type) {
+        return getCredentials().stream()
+                .anyMatch(c -> type.equals(c.type()));
+    }
+
+    public void deleteCredentialsByType(String type) {
+        getCredentials().stream()
+                .filter(c -> type.equals(c.type()))
+                .forEach(c -> deleteCredential(c.id()));
+    }
+
     private String get(String url) {
         return sendRequest(HttpRequest.newBuilder().uri(URI.create(url)).GET().build());
     }
