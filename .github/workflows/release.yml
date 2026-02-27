@@ -21,6 +21,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Set version from tag
         run: mvn versions:set -DnewVersion="${GITHUB_REF_NAME#v}" --batch-mode
@@ -28,10 +37,11 @@ jobs:
       - name: Build and test
         run: mvn verify --batch-mode
 
-      - name: Publish to GitHub Packages
-        run: mvn deploy --batch-mode -DskipTests
+      - name: Publish to Maven Central
+        run: mvn deploy --batch-mode -DskipTests -Prelease
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
