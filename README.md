@@ -61,24 +61,32 @@ The container supports fluent configuration:
 
 ```java
 Oid4vcContainer wallet = new Oid4vcContainer()
-    .withStatusList()                       // enable status list endpoint
-    .withPreferredFormat("dc+sd-jwt")       // set preferred credential format
-    .withoutAutoAccept()                    // disable auto-accept mode
-    .withoutDefaultPid();                   // disable default PID credential
+    .withStatusList()                                // enable status list endpoint
+    .withPreferredFormat(CredentialFormat.SD_JWT)     // set preferred credential format
+    .withoutAutoAccept()                             // disable auto-accept mode
+    .withoutDefaultPid();                            // disable default PID credential
 ```
 
 #### Custom PID claims
 
-Use the `PidClaims` builder:
+Use a format-specific claims builder:
 
 ```java
+// SD-JWT format
 Oid4vcContainer wallet = new Oid4vcContainer()
-    .withPidClaims(PidClaims.builder()
+    .withPidClaims(new SdJwtPidClaims()
         .givenName("Jane")
         .familyName("Doe")
         .birthdate("1990-01-15")
-        .nationality("DE")
-        .build());
+        .nationalities("DE"));
+
+// mDoc format
+Oid4vcContainer wallet = new Oid4vcContainer()
+    .withPidClaims(new MdocPidClaims()
+        .givenName("Jane")
+        .familyName("Doe")
+        .birthDate("1990-01-15")
+        .nationality("DE"));
 ```
 
 Or provide raw JSON:

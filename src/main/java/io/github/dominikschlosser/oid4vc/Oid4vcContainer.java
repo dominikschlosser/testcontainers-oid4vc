@@ -17,7 +17,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     private boolean autoAccept = true;
     private boolean statusList = false;
     private String statusListBaseUrl;
-    private String preferredFormat;
+    private CredentialFormat preferredFormat;
     private String sessionTranscript;
     private PidClaims customPidClaims;
     private String customPidJson;
@@ -67,7 +67,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return this;
     }
 
-    public Oid4vcContainer withPreferredFormat(String format) {
+    public Oid4vcContainer withPreferredFormat(CredentialFormat format) {
         this.preferredFormat = format;
         return this;
     }
@@ -104,7 +104,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         }
         if (preferredFormat != null) {
             flags.add("--preferred-format");
-            flags.add(preferredFormat);
+            flags.add(preferredFormat.getWireValue());
         }
         if (sessionTranscript != null) {
             flags.add("--session-transcript");

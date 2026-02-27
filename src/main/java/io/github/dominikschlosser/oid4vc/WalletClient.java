@@ -52,12 +52,12 @@ public class WalletClient {
         delete(baseUrl + "/api/next-error");
     }
 
-    public void setPreferredFormat(String format) {
-        putJson(baseUrl + "/api/config/preferred-format", toJson(Map.of("format", format)));
+    public void setPreferredFormat(CredentialFormat format) {
+        putJson(baseUrl + "/api/config/preferred-format", toJson(Map.of("format", format.getWireValue())));
     }
 
     public void clearPreferredFormat() {
-        setPreferredFormat("");
+        putJson(baseUrl + "/api/config/preferred-format", toJson(Map.of("format", "")));
     }
 
     public void importCredential(String rawCredential) {
@@ -131,7 +131,7 @@ public class WalletClient {
     @SuppressWarnings("unchecked")
     private static Credential toCredential(Map<String, Object> raw) {
         String id = (String) raw.get("id");
-        String format = (String) raw.get("format");
+        CredentialFormat format = CredentialFormat.fromWireValue((String) raw.get("format"));
         String type = (String) raw.get("type");
         if (type == null) {
             type = (String) raw.get("vct");

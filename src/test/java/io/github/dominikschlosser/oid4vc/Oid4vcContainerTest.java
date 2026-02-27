@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class Oid4vcContainerTest {
 
     @Container
-    static Oid4vcContainer wallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.13.0")
+    static Oid4vcContainer wallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.13.2")
             .withStatusList();
 
     @Test
@@ -25,7 +25,7 @@ class Oid4vcContainerTest {
         List<Credential> credentials = wallet.listCredentials();
 
         assertThat(credentials).isNotEmpty();
-        assertThat(credentials).anyMatch(c -> "dc+sd-jwt".equals(c.format()));
+        assertThat(credentials).anyMatch(c -> c.format() == CredentialFormat.SD_JWT);
     }
 
     @Test
@@ -71,8 +71,8 @@ class Oid4vcContainerTest {
 
     @Test
     void customPidClaims() {
-        try (Oid4vcContainer customWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.13.0")
-                .withPidClaims(new PidClaims()
+        try (Oid4vcContainer customWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.13.2")
+                .withPidClaims(new SdJwtPidClaims()
                         .givenName("MAX")
                         .familyName("POWER"))) {
             customWallet.start();
@@ -98,8 +98,8 @@ class Oid4vcContainerTest {
     void setAndClearPreferredFormat() {
         WalletClient client = wallet.client();
 
-        client.setPreferredFormat("mso_mdoc");
-        client.setPreferredFormat("dc+sd-jwt");
+        client.setPreferredFormat(CredentialFormat.MSO_MDOC);
+        client.setPreferredFormat(CredentialFormat.SD_JWT);
         client.clearPreferredFormat();
     }
 
@@ -109,7 +109,7 @@ class Oid4vcContainerTest {
         List<Credential> credentials = client.getCredentials();
 
         String sdJwtId = credentials.stream()
-                .filter(c -> "dc+sd-jwt".equals(c.format()))
+                .filter(c -> c.format() == CredentialFormat.SD_JWT)
                 .findFirst()
                 .map(Credential::id)
                 .orElseThrow();
