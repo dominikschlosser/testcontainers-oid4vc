@@ -134,6 +134,30 @@ class SdJwtCredentialBuilderTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void holderBindingKeyAddsCnfClaim() throws Exception {
+        ECKey holderKey = new ECKeyGenerator(Curve.P_256).generate();
+        String sdJwt = new SdJwtCredentialBuilder()
+                .vct("urn:example:test:1")
+                .holderBindingKey(holderKey)
+                .claim("name", "Test")
+                .build();
+
+        String jwtPart = sdJwt.split("~")[0];
+        SignedJWT parsed = SignedJWT.parse(jwtPart);
+
+        Map<String, Object> cnf = (Map<String, Object>) parsed.getJWTClaimsSet().getClaim("cnf");
+        assertThat(cnf).isNotNull();
+        Map<String, Object> jwk = (Map<String, Object>) cnf.get("jwk");
+        assertThat(jwk).isNotNull();
+        assertThat(jwk.get("kty")).isEqualTo("EC");
+        assertThat(jwk.get("crv")).isEqualTo("P-256");
+        // Should only contain public key components, no private key 'd'
+        assertThat(jwk).doesNotContainKey("d");
+        assertThat(jwk).containsKeys("x", "y");
+    }
+
+    @Test
     void autoGeneratesKeyWhenNoneProvided() {
         SdJwtCredentialBuilder builder = new SdJwtCredentialBuilder();
         ECKey key = builder.getSigningKey();

@@ -8,6 +8,7 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
@@ -29,6 +30,7 @@ public class SdJwtCredentialBuilder {
     private final Map<String, Object> flatClaims = new LinkedHashMap<>();
     private final Map<String, Map<String, Object>> objectClaims = new LinkedHashMap<>();
     private final Map<String, List<?>> arrayClaims = new LinkedHashMap<>();
+    private JWK holderBindingKey;
 
     public SdJwtCredentialBuilder() {
         try {
@@ -72,6 +74,11 @@ public class SdJwtCredentialBuilder {
         return this;
     }
 
+    public SdJwtCredentialBuilder holderBindingKey(JWK holderBindingKey) {
+        this.holderBindingKey = holderBindingKey;
+        return this;
+    }
+
     public ECKey getSigningKey() {
         return signingKey;
     }
@@ -109,6 +116,9 @@ public class SdJwtCredentialBuilder {
         }
         if (issuer != null) {
             claimsBuilder.issuer(issuer);
+        }
+        if (holderBindingKey != null) {
+            claimsBuilder.claim("cnf", Map.of("jwk", holderBindingKey.toPublicJWK().toJSONObject()));
         }
 
         // Add _sd digests for disclosures
