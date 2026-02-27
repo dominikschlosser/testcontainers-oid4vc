@@ -1,7 +1,7 @@
 # testcontainers-oid4vc
 
 [![Build](https://github.com/dominikschlosser/testcontainers-oid4vc/actions/workflows/build.yml/badge.svg)](https://github.com/dominikschlosser/testcontainers-oid4vc/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/dominikschlosser/testcontainers-oid4vc)](https://github.com/dominikschlosser/testcontainers-oid4vc/releases/latest)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.dominikschlosser/testcontainers-oid4vc)](https://central.sonatype.com/artifact/io.github.dominikschlosser/testcontainers-oid4vc)
 
 A [Testcontainers](https://www.testcontainers.org/) module for testing [OpenID for Verifiable Credentials (OID4VC)](https://openid.net/sg/openid4vc/) implementations. It wraps the [`oid4vc-dev`](https://github.com/dominikschlosser/oid4vc-dev) Docker image, providing a containerized wallet for OID4VCI and OID4VP integration tests.
 
@@ -9,8 +9,7 @@ A [Testcontainers](https://www.testcontainers.org/) module for testing [OpenID f
 
 | testcontainers-oid4vc | Testcontainers | oid4vc-dev |
 |---|---|---|
-| 0.13.4-SNAPSHOT | 2.0.3 | 0.13.3 |
-| 0.13.3 | 1.21.4 | 0.13.3 |
+| 1.0.0 | 2.0.3 | 0.13.3 |
 
 ## Requirements
 
@@ -25,21 +24,12 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-oid4vc</artifactId>
-    <version>0.13.3</version>
+    <version>1.0.0</version>
     <scope>test</scope>
 </dependency>
 ```
 
-The artifact is published to [GitHub Packages](https://github.com/dominikschlosser/testcontainers-oid4vc/packages). You need to add the GitHub Packages repository to your `pom.xml`:
-
-```xml
-<repositories>
-    <repository>
-        <id>github</id>
-        <url>https://maven.pkg.github.com/dominikschlosser/testcontainers-oid4vc</url>
-    </repository>
-</repositories>
-```
+The artifact is published to [Maven Central](https://central.sonatype.com/artifact/io.github.dominikschlosser/testcontainers-oid4vc). No additional repository configuration is needed.
 
 ## Usage
 
