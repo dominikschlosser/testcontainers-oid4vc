@@ -18,7 +18,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-oid4vc</artifactId>
-    <version>0.1.0</version>
+    <version>0.13.3</version>
     <scope>test</scope>
 </dependency>
 ```
