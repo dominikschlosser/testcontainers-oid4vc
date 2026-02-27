@@ -81,6 +81,12 @@ public class WalletClient {
         try {
             Map<String, Object> parsed = MAPPER.readValue(body, new TypeReference<>() {});
             String redirectUri = (String) parsed.get("redirect_uri");
+            if (redirectUri == null) {
+                Object response = parsed.get("response");
+                if (response instanceof Map<?, ?> responseMap) {
+                    redirectUri = (String) responseMap.get("redirect_uri");
+                }
+            }
             return new PresentationResponse(redirectUri, body);
         } catch (IOException e) {
             return new PresentationResponse(null, body);

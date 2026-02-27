@@ -1,6 +1,8 @@
 package io.github.dominikschlosser.oid4vc;
 
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
@@ -34,6 +36,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         super(dockerImageName);
         addExposedPort(WALLET_PORT);
         waitingFor(Wait.forHttp("/").forPort(WALLET_PORT));
+        withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("oid4vp-dev")));
     }
 
     public Oid4vcContainer withoutDefaultPid() {
