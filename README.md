@@ -9,6 +9,7 @@ A [Testcontainers](https://www.testcontainers.org/) module for testing [OpenID f
 
 | testcontainers-oid4vc | Testcontainers | oid4vc-dev |
 |---|---|---|
+| 1.1.0 | 2.0.3 | 0.13.3 |
 | 1.0.0 | 2.0.3 | 0.13.3 |
 
 ## Requirements
@@ -24,7 +25,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-oid4vc</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <scope>test</scope>
 </dependency>
 ```
