@@ -107,6 +107,12 @@ public class WalletClient {
                 .anyMatch(c -> type.equals(c.type()));
     }
 
+    public List<Credential> getCredentialsByType(String type) {
+        return getCredentials().stream()
+                .filter(c -> type.equals(c.type()))
+                .collect(Collectors.toList());
+    }
+
     public void deleteCredentialsByType(String type) {
         getCredentials().stream()
                 .filter(c -> type.equals(c.type()))

@@ -135,6 +135,35 @@ class Oid4vcContainerTest {
     }
 
     @Test
+    void getCredentialsByTypeReturnsMatchingCredentials() {
+        WalletClient client = wallet.client();
+
+        String sdJwt1 = new SdJwtCredentialBuilder()
+                .vct("urn:test:by-type:1")
+                .claim("seq", "first")
+                .build();
+        String sdJwt2 = new SdJwtCredentialBuilder()
+                .vct("urn:test:by-type:1")
+                .claim("seq", "second")
+                .build();
+
+        client.importCredential(sdJwt1);
+        client.importCredential(sdJwt2);
+
+        List<Credential> matched = client.getCredentialsByType("urn:test:by-type:1");
+        assertThat(matched).hasSize(2);
+        assertThat(matched).allMatch(c -> "urn:test:by-type:1".equals(c.type()));
+
+        // Clean up
+        client.deleteCredentialsByType("urn:test:by-type:1");
+    }
+
+    @Test
+    void getCredentialsByTypeReturnsEmptyListForMissing() {
+        assertThat(wallet.client().getCredentialsByType("urn:nonexistent:type")).isEmpty();
+    }
+
+    @Test
     void importAndDeleteCredential() {
         WalletClient client = wallet.client();
 
