@@ -5,15 +5,6 @@
 
 A [Testcontainers](https://www.testcontainers.org/) module for testing [OpenID for Verifiable Credentials (OID4VC)](https://openid.net/sg/openid4vc/) implementations. It wraps the [`oid4vc-dev`](https://github.com/dominikschlosser/oid4vc-dev) Docker image, providing a containerized wallet for OID4VCI and OID4VP integration tests.
 
-## Compatibility
-
-| testcontainers-oid4vc | Testcontainers | oid4vc-dev |
-|---|---|---|
-| 1.1.2 | 2.0.3 | 0.17.1 |
-| 1.1.1 | 2.0.3 | 0.14.2 |
-| 1.1.0 | 2.0.3 | 0.13.3 |
-| 1.0.0 | 2.0.3 | 0.13.3 |
-
 ## Requirements
 
 - Java 21+
