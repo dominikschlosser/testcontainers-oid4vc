@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class Oid4vcContainerTest {
 
     @Container
-    static Oid4vcContainer wallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.14.2")
+    static Oid4vcContainer wallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1")
             .withStatusList();
 
     @Test
@@ -88,7 +88,7 @@ class Oid4vcContainerTest {
 
     @Test
     void customPidClaims() {
-        try (Oid4vcContainer customWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.14.2")
+        try (Oid4vcContainer customWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1")
                 .withPidClaims(new SdJwtPidClaims()
                         .givenName("MAX")
                         .familyName("POWER"))) {
@@ -231,7 +231,7 @@ class Oid4vcContainerTest {
 
     @Test
     void withHostAccessConfiguresContainer() {
-        try (Oid4vcContainer hostWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.14.2")
+        try (Oid4vcContainer hostWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1")
                 .withHostAccess()) {
             hostWallet.start();
             assertThat(hostWallet.isRunning()).isTrue();

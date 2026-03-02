@@ -9,6 +9,7 @@ A [Testcontainers](https://www.testcontainers.org/) module for testing [OpenID f
 
 | testcontainers-oid4vc | Testcontainers | oid4vc-dev |
 |---|---|---|
+| 1.1.2 | 2.0.3 | 0.17.1 |
 | 1.1.1 | 2.0.3 | 0.14.2 |
 | 1.1.0 | 2.0.3 | 0.13.3 |
 | 1.0.0 | 2.0.3 | 0.13.3 |

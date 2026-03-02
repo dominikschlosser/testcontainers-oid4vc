@@ -26,7 +26,7 @@ import java.util.List;
 
 public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1";
     private static final int WALLET_PORT = 8085;
 
     private boolean includeDefaultPid = true;
