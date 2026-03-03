@@ -32,6 +32,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
     private boolean statusList = false;
+    private boolean requireEncryptedRequest = false;
     private String statusListBaseUrl;
     private CredentialFormat preferredFormat;
     private String sessionTranscript;
@@ -95,6 +96,16 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     }
 
     /**
+     * Requires verifiers to encrypt OID4VP request objects. When enabled, the
+     * wallet advertises an encryption key in its {@code wallet_metadata} so that
+     * verifiers can encrypt the Authorization Request using JWE.
+     */
+    public Oid4vcContainer withRequireEncryptedRequest() {
+        this.requireEncryptedRequest = true;
+        return this;
+    }
+
+    /**
      * Maps {@code localhost} inside the container to the Docker host via the
      * {@code host-gateway} special address. This allows the wallet to reach
      * services running on the host machine (e.g. an issuer or verifier started
@@ -144,6 +155,9 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         if (sessionTranscript != null) {
             flags.add("--session-transcript");
             flags.add(sessionTranscript);
+        }
+        if (requireEncryptedRequest) {
+            flags.add("--require-encrypted-request");
         }
         return flags;
     }

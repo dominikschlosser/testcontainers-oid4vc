@@ -241,6 +241,16 @@ class Oid4vcContainerTest {
     }
 
     @Test
+    void withRequireEncryptedRequestStartsSuccessfully() {
+        try (Oid4vcContainer encWallet = new Oid4vcContainer()
+                .withRequireEncryptedRequest()) {
+            encWallet.start();
+            assertThat(encWallet.isRunning()).isTrue();
+            assertThat(encWallet.listCredentials()).isNotEmpty();
+        }
+    }
+
+    @Test
     void importSdJwtCredentialWithObjectAndArrayClaims() {
         WalletClient client = wallet.client();
 
