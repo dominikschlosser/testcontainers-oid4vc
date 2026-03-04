@@ -15,5 +15,18 @@
  */
 package io.github.dominikschlosser.oid4vc;
 
-public record PresentationResponse(String redirectUri, String idToken, String rawBody) {
+public enum ResponseType {
+    VP_TOKEN("vp_token"),
+    ID_TOKEN("id_token"),
+    VP_TOKEN_ID_TOKEN("vp_token id_token");
+
+    private final String wireValue;
+
+    ResponseType(String wireValue) {
+        this.wireValue = wireValue;
+    }
+
+    public String getWireValue() {
+        return wireValue;
+    }
 }

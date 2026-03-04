@@ -35,6 +35,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     private boolean requireEncryptedRequest = false;
     private String statusListBaseUrl;
     private CredentialFormat preferredFormat;
+    private ResponseType responseType;
     private String sessionTranscript;
     private PidClaims customPidClaims;
     private String customPidJson;
@@ -87,6 +88,11 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     public Oid4vcContainer withPreferredFormat(CredentialFormat format) {
         this.preferredFormat = format;
+        return this;
+    }
+
+    public Oid4vcContainer withResponseType(ResponseType responseType) {
+        this.responseType = responseType;
         return this;
     }
 
@@ -151,6 +157,10 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         if (preferredFormat != null) {
             flags.add("--preferred-format");
             flags.add(preferredFormat.getWireValue());
+        }
+        if (responseType != null) {
+            flags.add("--response-type");
+            flags.add(responseType.getWireValue());
         }
         if (sessionTranscript != null) {
             flags.add("--session-transcript");
