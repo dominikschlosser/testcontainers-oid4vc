@@ -54,7 +54,6 @@ The container supports fluent configuration:
 Oid4vcContainer wallet = new Oid4vcContainer()
     .withStatusList()                                // enable status list endpoint
     .withPreferredFormat(CredentialFormat.SD_JWT)     // set preferred credential format
-    .withResponseType(ResponseType.ID_TOKEN)         // set response type (vp_token, id_token, or vp_token id_token)
     .withRequireEncryptedRequest()                   // require encrypted request objects (wallet_metadata)
     .withoutAutoAccept()                             // disable auto-accept mode
     .withoutDefaultPid();                            // disable default PID credential
