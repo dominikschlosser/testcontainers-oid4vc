@@ -18,7 +18,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-oid4vc</artifactId>
-    <version>1.1.1</version>
+    <version>1.3.0</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -54,6 +54,7 @@ The container supports fluent configuration:
 Oid4vcContainer wallet = new Oid4vcContainer()
     .withStatusList()                                // enable status list endpoint
     .withPreferredFormat(CredentialFormat.SD_JWT)     // set preferred credential format
+    .withResponseType(ResponseType.ID_TOKEN)         // set response type (vp_token, id_token, or vp_token id_token)
     .withRequireEncryptedRequest()                   // require encrypted request objects (wallet_metadata)
     .withoutAutoAccept()                             // disable auto-accept mode
     .withoutDefaultPid();                            // disable default PID credential
@@ -112,6 +113,7 @@ OfferResponse offer = wallet.acceptCredentialOffer(credentialOfferUri);
 // Accept a presentation request (returns PresentationResponse with redirect URI)
 PresentationResponse presentation = wallet.acceptPresentationRequest(presentationRequestUri);
 String redirectUri = presentation.redirectUri();
+String idToken = presentation.idToken(); // available when response_type includes id_token
 ```
 
 ### Credential management
