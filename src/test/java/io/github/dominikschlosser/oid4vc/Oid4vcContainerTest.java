@@ -19,8 +19,20 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import javax.net.ssl.SSLContext;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import javax.net.ssl.TrustManagerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class Oid4vcContainerTest {
 
     @Container
-    static Oid4vcContainer wallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1")
+    static Oid4vcContainer wallet = new Oid4vcContainer()
             .withStatusList();
 
     @Test
@@ -80,15 +92,21 @@ class Oid4vcContainerTest {
     @Test
     void urlAccessorsReturnMappedPort() {
         assertThat(wallet.getBaseUrl()).startsWith("http://");
+        assertThat(wallet.getHttpsBaseUrl()).startsWith("https://");
         assertThat(wallet.getAuthorizeUrl()).endsWith("/authorize");
+        assertThat(wallet.getHttpsAuthorizeUrl()).endsWith("/authorize");
         assertThat(wallet.getTrustListUrl()).endsWith("/api/trustlist");
+        assertThat(wallet.getHttpsTrustListUrl()).endsWith("/api/trustlist");
+        assertThat(wallet.getIssuerUrl()).startsWith("https://");
+        assertThat(wallet.getIssuerMetadataUrl()).endsWith("/.well-known/jwt-vc-issuer");
         assertThat(wallet.getCredentialsUrl()).endsWith("/api/credentials");
         assertThat(wallet.getStatusListUrl()).endsWith("/api/statuslist");
+        assertThat(wallet.getHttpsStatusListUrl()).endsWith("/api/statuslist");
     }
 
     @Test
     void customPidClaims() {
-        try (Oid4vcContainer customWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1")
+        try (Oid4vcContainer customWallet = new Oid4vcContainer()
                 .withPidClaims(new SdJwtPidClaims()
                         .givenName("MAX")
                         .familyName("POWER"))) {
@@ -231,7 +249,7 @@ class Oid4vcContainerTest {
 
     @Test
     void withHostAccessConfiguresContainer() {
-        try (Oid4vcContainer hostWallet = new Oid4vcContainer("ghcr.io/dominikschlosser/oid4vc-dev:v0.17.1")
+        try (Oid4vcContainer hostWallet = new Oid4vcContainer()
                 .withHostAccess()) {
             hostWallet.start();
             assertThat(hostWallet.isRunning()).isTrue();
@@ -267,5 +285,89 @@ class Oid4vcContainerTest {
 
         // Clean up
         client.deleteCredentialsByType("urn:test:complex:1");
+    }
+
+    @Test
+    void walletTlsCertificatePemCanBeExported() {
+        String pem = wallet.getWalletTlsCertificatePem();
+
+        assertThat(pem).startsWith("-----BEGIN CERTIFICATE-----");
+        assertThat(pem).contains("-----END CERTIFICATE-----");
+    }
+
+    @Test
+    void walletTlsCertificateCanBeWrittenToFile() throws Exception {
+        Path certificateFile = Files.createTempFile("oid4vc-issuer", ".pem");
+
+        Path exportedPath = wallet.exportWalletTlsCertificate(certificateFile);
+
+        assertThat(exportedPath).isEqualTo(certificateFile);
+        assertThat(Files.readString(certificateFile)).contains("BEGIN CERTIFICATE");
+    }
+
+    @Test
+    void issuerMetadataEndpointCanBeTrustedWithExportedCertificate() throws Exception {
+        SSLContext sslContext = sslContextFromPem(wallet.getWalletTlsCertificatePem());
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .build();
+
+        HttpResponse<String> response = client.send(
+                HttpRequest.newBuilder(URI.create(wallet.getIssuerMetadataUrl())).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).contains("\"issuer\"");
+        assertThat(response.body()).contains("\"jwks\"");
+    }
+
+    @Test
+    void httpsTrustListAndStatusListCanBeTrustedWithExportedCertificate() throws Exception {
+        SSLContext sslContext = sslContextFromPem(wallet.getWalletTlsCertificatePem());
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .build();
+
+        HttpResponse<String> trustListResponse = client.send(
+                HttpRequest.newBuilder(URI.create(wallet.getHttpsTrustListUrl())).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        HttpResponse<String> statusListResponse = client.send(
+                HttpRequest.newBuilder(URI.create(wallet.getHttpsStatusListUrl())).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        assertThat(trustListResponse.statusCode()).isEqualTo(200);
+        assertThat(trustListResponse.body().split("\\.")).hasSizeGreaterThanOrEqualTo(3);
+        assertThat(statusListResponse.statusCode()).isEqualTo(200);
+        assertThat(statusListResponse.body().split("\\.")).hasSizeGreaterThanOrEqualTo(3);
+    }
+
+    @Test
+    void issuerTlsCertificateMethodsRemainAsAliases() {
+        assertThat(wallet.getIssuerTlsCertificatePem()).isEqualTo(wallet.getWalletTlsCertificatePem());
+    }
+
+    private static SSLContext sslContextFromPem(String pem) throws Exception {
+        byte[] der = Base64.getMimeDecoder().decode(
+                pem.replace("-----BEGIN CERTIFICATE-----", "")
+                        .replace("-----END CERTIFICATE-----", "")
+                        .replaceAll("\\s+", "")
+        );
+
+        CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+        Certificate certificate = certificateFactory.generateCertificate(new java.io.ByteArrayInputStream(der));
+
+        KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        trustStore.load(null, null);
+        trustStore.setCertificateEntry("oid4vc-dev-issuer", certificate);
+
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        trustManagerFactory.init(trustStore);
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, trustManagerFactory.getTrustManagers(), null);
+        return sslContext;
     }
 }

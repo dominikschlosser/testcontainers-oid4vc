@@ -16,11 +16,15 @@
 package io.github.dominikschlosser.oid4vc;
 
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,12 +32,13 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev:latest";
     private static final int WALLET_PORT = 8085;
+    private static final int ISSUER_TLS_PORT = 8086;
 
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
     private boolean statusList = false;
     private boolean requireEncryptedRequest = false;
-    private String statusListBaseUrl;
+    private String baseUrl;
     private CredentialFormat preferredFormat;
     private String sessionTranscript;
     private PidClaims customPidClaims;
@@ -51,6 +56,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     public Oid4vcContainer(DockerImageName dockerImageName) {
         super(dockerImageName);
         addExposedPort(WALLET_PORT);
+        addExposedPort(ISSUER_TLS_PORT);
         waitingFor(Wait.forHttp("/").forPort(WALLET_PORT));
         withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("oid4vp-dev")));
     }
@@ -80,9 +86,20 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return this;
     }
 
-    public Oid4vcContainer withStatusListBaseUrl(String baseUrl) {
-        this.statusListBaseUrl = baseUrl;
+    /**
+     * Sets the wallet base URL advertised by oid4vc-dev for its HTTP endpoints.
+     * The same host is also reused for the wallet's HTTPS endpoints.
+     */
+    public Oid4vcContainer withBaseUrl(String baseUrl) {
+        this.baseUrl = baseUrl;
         return this;
+    }
+
+    /**
+     * Compatibility alias for the older status-list-specific naming.
+     */
+    public Oid4vcContainer withStatusListBaseUrl(String baseUrl) {
+        return withBaseUrl(baseUrl);
     }
 
     public Oid4vcContainer withPreferredFormat(CredentialFormat format) {
@@ -143,10 +160,10 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         }
         if (statusList) {
             flags.add("--status-list");
-            if (statusListBaseUrl != null) {
-                flags.add("--base-url");
-                flags.add(statusListBaseUrl);
-            }
+        }
+        if (baseUrl != null) {
+            flags.add("--base-url");
+            flags.add(baseUrl);
         }
         if (preferredFormat != null) {
             flags.add("--preferred-format");
@@ -193,12 +210,32 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return "http://" + getHost() + ":" + getMappedPort(WALLET_PORT);
     }
 
+    public String getHttpsBaseUrl() {
+        return "https://" + getHost() + ":" + getMappedPort(ISSUER_TLS_PORT);
+    }
+
     public String getAuthorizeUrl() {
         return getBaseUrl() + "/authorize";
     }
 
+    public String getHttpsAuthorizeUrl() {
+        return getHttpsBaseUrl() + "/authorize";
+    }
+
     public String getTrustListUrl() {
         return getBaseUrl() + "/api/trustlist";
+    }
+
+    public String getHttpsTrustListUrl() {
+        return getHttpsBaseUrl() + "/api/trustlist";
+    }
+
+    public String getIssuerUrl() {
+        return getHttpsBaseUrl();
+    }
+
+    public String getIssuerMetadataUrl() {
+        return getHttpsBaseUrl() + "/.well-known/jwt-vc-issuer";
     }
 
     public String getCredentialsUrl() {
@@ -207,6 +244,10 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     public String getStatusListUrl() {
         return getBaseUrl() + "/api/statuslist";
+    }
+
+    public String getHttpsStatusListUrl() {
+        return getHttpsBaseUrl() + "/api/statuslist";
     }
 
     public OfferResponse acceptCredentialOffer(String uri) {
@@ -226,6 +267,69 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
             cachedClient = new WalletClient(getBaseUrl());
         }
         return cachedClient;
+    }
+
+    /**
+     * Returns the PEM-encoded self-signed HTTPS certificate used by the wallet's
+     * HTTPS endpoints. Tests can add this certificate to a trust store to call
+     * metadata, trust list, or status list endpoints without disabling TLS verification.
+     */
+    public String getWalletTlsCertificatePem() {
+        try {
+            List<String> command = new ArrayList<>(List.of(
+                    "oid4vc-dev",
+                    "wallet",
+                    "tls-cert"
+            ));
+            if (baseUrl != null) {
+                command.add("--base-url");
+                command.add(baseUrl);
+            }
+            command.add("--port");
+            command.add(String.valueOf(WALLET_PORT));
+            Container.ExecResult result = execInContainer(
+                    command.toArray(new String[0])
+            );
+            if (result.getExitCode() != 0) {
+                throw new WalletClientException("Failed to export wallet TLS certificate: " + result.getStderr());
+            }
+            return result.getStdout().strip();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new WalletClientException("Failed to export wallet TLS certificate", e);
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to export wallet TLS certificate", e);
+        }
+    }
+
+    /**
+     * Writes the PEM-encoded wallet HTTPS certificate to the given host path.
+     */
+    public Path exportWalletTlsCertificate(Path outputPath) {
+        try {
+            Path parent = outputPath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(outputPath, getWalletTlsCertificatePem() + System.lineSeparator());
+            return outputPath;
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to write wallet TLS certificate to " + outputPath, e);
+        }
+    }
+
+    /**
+     * Compatibility alias for callers using the v1.5.0 issuer-focused naming.
+     */
+    public String getIssuerTlsCertificatePem() {
+        return getWalletTlsCertificatePem();
+    }
+
+    /**
+     * Compatibility alias for callers using the v1.5.0 issuer-focused naming.
+     */
+    public Path exportIssuerTlsCertificate(Path outputPath) {
+        return exportWalletTlsCertificate(outputPath);
     }
 
     private String resolveCustomPidJson() {
