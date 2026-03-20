@@ -27,12 +27,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev:latest";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
+    private static final Pattern CERTIFICATE_PEM_PATTERN = Pattern.compile(
+            "-----BEGIN CERTIFICATE-----\\R.+?\\R-----END CERTIFICATE-----",
+            Pattern.DOTALL
+    );
 
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
@@ -270,52 +276,53 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
     }
 
     /**
-     * Returns the PEM-encoded self-signed HTTPS certificate used by the wallet's
+     * Returns the PEM-encoded leaf HTTPS certificate used by this wallet's
      * HTTPS endpoints. Tests can add this certificate to a trust store to call
-     * metadata, trust list, or status list endpoints without disabling TLS verification.
+     * this wallet's metadata, trust list, or status list endpoints without
+     * disabling TLS verification.
+     *
+     * <p>If multiple wallet HTTPS certificates are issued by a shared CA,
+     * prefer {@link #getWalletTlsCaCertificatePem()} for trust stores that
+     * must validate sibling wallet certificates as well.
      */
     public String getWalletTlsCertificatePem() {
-        try {
-            List<String> command = new ArrayList<>(List.of(
-                    "oid4vc-dev",
-                    "wallet",
-                    "tls-cert"
-            ));
-            if (baseUrl != null) {
-                command.add("--base-url");
-                command.add(baseUrl);
-            }
-            command.add("--port");
-            command.add(String.valueOf(WALLET_PORT));
-            Container.ExecResult result = execInContainer(
-                    command.toArray(new String[0])
-            );
-            if (result.getExitCode() != 0) {
-                throw new WalletClientException("Failed to export wallet TLS certificate: " + result.getStderr());
-            }
-            return result.getStdout().strip();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new WalletClientException("Failed to export wallet TLS certificate", e);
-        } catch (IOException e) {
-            throw new WalletClientException("Failed to export wallet TLS certificate", e);
+        List<String> command = new ArrayList<>(List.of(
+                "oid4vc-dev",
+                "wallet",
+                "tls-cert"
+        ));
+        if (baseUrl != null) {
+            command.add("--base-url");
+            command.add(baseUrl);
         }
+        command.add("--port");
+        command.add(String.valueOf(WALLET_PORT));
+        return execPemCommand(command, "wallet TLS certificate");
     }
 
     /**
-     * Writes the PEM-encoded wallet HTTPS certificate to the given host path.
+     * Writes the PEM-encoded wallet HTTPS leaf certificate to the given host path.
      */
     public Path exportWalletTlsCertificate(Path outputPath) {
-        try {
-            Path parent = outputPath.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Files.writeString(outputPath, getWalletTlsCertificatePem() + System.lineSeparator());
-            return outputPath;
-        } catch (IOException e) {
-            throw new WalletClientException("Failed to write wallet TLS certificate to " + outputPath, e);
-        }
+        return writePem(outputPath, getWalletTlsCertificatePem(), "wallet TLS certificate");
+    }
+
+    /**
+     * Returns the PEM-encoded shared CA certificate used to sign wallet HTTPS
+     * certificates and related x5c chains.
+     */
+    public String getWalletTlsCaCertificatePem() {
+        return execPemCommand(
+                List.of("oid4vc-dev", "wallet", "ca-cert"),
+                "wallet TLS CA certificate"
+        );
+    }
+
+    /**
+     * Writes the PEM-encoded shared wallet CA certificate to the given host path.
+     */
+    public Path exportWalletTlsCaCertificate(Path outputPath) {
+        return writePem(outputPath, getWalletTlsCaCertificatePem(), "wallet TLS CA certificate");
     }
 
     /**
@@ -332,6 +339,22 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return exportWalletTlsCertificate(outputPath);
     }
 
+    /**
+     * Compatibility alias for callers using issuer-focused naming for the
+     * shared wallet CA certificate.
+     */
+    public String getIssuerTlsCaCertificatePem() {
+        return getWalletTlsCaCertificatePem();
+    }
+
+    /**
+     * Compatibility alias for callers using issuer-focused naming for the
+     * shared wallet CA certificate.
+     */
+    public Path exportIssuerTlsCaCertificate(Path outputPath) {
+        return exportWalletTlsCaCertificate(outputPath);
+    }
+
     private String resolveCustomPidJson() {
         if (customPidClaims != null) {
             return customPidClaims.toJson();
@@ -341,5 +364,49 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     private static String shellEscape(String value) {
         return value.replace("'", "'\\''");
+    }
+
+    private String execPemCommand(List<String> command, String description) {
+        try {
+            Container.ExecResult result = execInContainer(command.toArray(new String[0]));
+            if (result.getExitCode() != 0) {
+                throw new WalletClientException("Failed to export " + description + ": " + result.getStderr());
+            }
+            return normalizeCertificatePem(result.getStdout(), description);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new WalletClientException("Failed to export " + description, e);
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to export " + description, e);
+        }
+    }
+
+    private Path writePem(Path outputPath, String pem, String description) {
+        try {
+            Path parent = outputPath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(outputPath, pem + System.lineSeparator());
+            return outputPath;
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to write " + description + " to " + outputPath, e);
+        }
+    }
+
+    private static String normalizeCertificatePem(String stdout, String description) {
+        String output = stdout.strip();
+        Matcher matcher = CERTIFICATE_PEM_PATTERN.matcher(output);
+        StringBuilder pem = new StringBuilder();
+        while (matcher.find()) {
+            if (!pem.isEmpty()) {
+                pem.append(System.lineSeparator());
+            }
+            pem.append(matcher.group().strip());
+        }
+        if (!pem.isEmpty()) {
+            return pem.toString();
+        }
+        throw new WalletClientException("Failed to export " + description + ": no PEM certificate found in command output");
     }
 }

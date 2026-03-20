@@ -24,12 +24,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
-import java.util.Base64;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import javax.net.ssl.TrustManagerFactory;
@@ -306,7 +307,25 @@ class Oid4vcContainerTest {
     }
 
     @Test
-    void issuerMetadataEndpointCanBeTrustedWithExportedCertificate() throws Exception {
+    void walletTlsCaCertificatePemCanBeExported() {
+        String pem = wallet.getWalletTlsCaCertificatePem();
+
+        assertThat(pem).startsWith("-----BEGIN CERTIFICATE-----");
+        assertThat(pem).contains("-----END CERTIFICATE-----");
+    }
+
+    @Test
+    void walletTlsCaCertificateCanBeWrittenToFile() throws Exception {
+        Path certificateFile = Files.createTempFile("oid4vc-wallet-ca", ".pem");
+
+        Path exportedPath = wallet.exportWalletTlsCaCertificate(certificateFile);
+
+        assertThat(exportedPath).isEqualTo(certificateFile);
+        assertThat(Files.readString(certificateFile)).contains("BEGIN CERTIFICATE");
+    }
+
+    @Test
+    void issuerMetadataEndpointCanBeTrustedWithExportedLeafCertificate() throws Exception {
         SSLContext sslContext = sslContextFromPem(wallet.getWalletTlsCertificatePem());
         HttpClient client = HttpClient.newBuilder()
                 .sslContext(sslContext)
@@ -323,7 +342,7 @@ class Oid4vcContainerTest {
     }
 
     @Test
-    void httpsTrustListAndStatusListCanBeTrustedWithExportedCertificate() throws Exception {
+    void httpsTrustListAndStatusListCanBeTrustedWithExportedLeafCertificate() throws Exception {
         SSLContext sslContext = sslContextFromPem(wallet.getWalletTlsCertificatePem());
         HttpClient client = HttpClient.newBuilder()
                 .sslContext(sslContext)
@@ -345,23 +364,55 @@ class Oid4vcContainerTest {
     }
 
     @Test
+    void httpsEndpointsCanBeTrustedWithExportedCaCertificate() throws Exception {
+        SSLContext sslContext = sslContextFromPem(wallet.getWalletTlsCaCertificatePem());
+        HttpClient client = HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .build();
+
+        HttpResponse<String> issuerMetadataResponse = client.send(
+                HttpRequest.newBuilder(URI.create(wallet.getIssuerMetadataUrl())).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        HttpResponse<String> trustListResponse = client.send(
+                HttpRequest.newBuilder(URI.create(wallet.getHttpsTrustListUrl())).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+        HttpResponse<String> statusListResponse = client.send(
+                HttpRequest.newBuilder(URI.create(wallet.getHttpsStatusListUrl())).GET().build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        assertThat(issuerMetadataResponse.statusCode()).isEqualTo(200);
+        assertThat(issuerMetadataResponse.body()).contains("\"issuer\"");
+        assertThat(trustListResponse.statusCode()).isEqualTo(200);
+        assertThat(trustListResponse.body().split("\\.")).hasSizeGreaterThanOrEqualTo(3);
+        assertThat(statusListResponse.statusCode()).isEqualTo(200);
+        assertThat(statusListResponse.body().split("\\.")).hasSizeGreaterThanOrEqualTo(3);
+    }
+
+    @Test
     void issuerTlsCertificateMethodsRemainAsAliases() {
         assertThat(wallet.getIssuerTlsCertificatePem()).isEqualTo(wallet.getWalletTlsCertificatePem());
     }
 
-    private static SSLContext sslContextFromPem(String pem) throws Exception {
-        byte[] der = Base64.getMimeDecoder().decode(
-                pem.replace("-----BEGIN CERTIFICATE-----", "")
-                        .replace("-----END CERTIFICATE-----", "")
-                        .replaceAll("\\s+", "")
-        );
+    @Test
+    void issuerTlsCaCertificateMethodsRemainAsAliases() {
+        assertThat(wallet.getIssuerTlsCaCertificatePem()).isEqualTo(wallet.getWalletTlsCaCertificatePem());
+    }
 
+    private static SSLContext sslContextFromPem(String pem) throws Exception {
         CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
-        Certificate certificate = certificateFactory.generateCertificate(new java.io.ByteArrayInputStream(der));
+        Collection<? extends Certificate> certificates = certificateFactory.generateCertificates(
+                new java.io.ByteArrayInputStream(pem.getBytes(StandardCharsets.US_ASCII))
+        );
 
         KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
         trustStore.load(null, null);
-        trustStore.setCertificateEntry("oid4vc-dev-issuer", certificate);
+        int index = 0;
+        for (Certificate certificate : certificates) {
+            trustStore.setCertificateEntry("oid4vc-dev-cert-" + index++, certificate);
+        }
 
         TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         trustManagerFactory.init(trustStore);

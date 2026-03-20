@@ -191,20 +191,23 @@ wallet.getHttpsStatusListUrl(); // https://host:tls-port/api/statuslist
 
 ### Trust the wallet HTTPS certificate
 
-`oid4vc-dev` v1.5.1 serves wallet metadata, authorize, trust list, and status list endpoints on a self-signed HTTPS listener. The container exposes that certificate:
+`oid4vc-dev` exposes both the wallet HTTPS leaf certificate and the shared wallet CA certificate. Use the leaf certificate if you only need to trust one wallet instance. Use the CA certificate if your test harness must trust auxiliary wallets signed by the same CA:
 
 ```java
 Oid4vcContainer wallet = new Oid4vcContainer();
 
-String pem = wallet.getWalletTlsCertificatePem();
-Path certFile = wallet.exportWalletTlsCertificate(Path.of("target/oid4vc-wallet.pem"));
+String leafPem = wallet.getWalletTlsCertificatePem();
+Path leafCertFile = wallet.exportWalletTlsCertificate(Path.of("target/oid4vc-wallet.pem"));
+
+String caPem = wallet.getWalletTlsCaCertificatePem();
+Path caCertFile = wallet.exportWalletTlsCaCertificate(Path.of("target/oid4vc-wallet-ca.pem"));
 
 String issuerMetadataUrl = wallet.getIssuerMetadataUrl();
 String trustListUrl = wallet.getHttpsTrustListUrl();
 String statusListUrl = wallet.getHttpsStatusListUrl();
 ```
 
-Add the exported PEM to your verifier's trust store instead of disabling TLS verification.
+Add the appropriate exported PEM to your verifier's trust store instead of disabling TLS verification.
 
 ## License
 
