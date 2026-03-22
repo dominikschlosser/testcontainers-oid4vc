@@ -20,9 +20,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -53,6 +55,34 @@ public class WalletClient {
 
     public String getTrustList() {
         return get(baseUrl + "/api/trustlist");
+    }
+
+    public String getTrustListById(String id) {
+        return get(baseUrl + "/api/trustlists/" + urlEncode(id));
+    }
+
+    public String getTrustListForVct(String vct) {
+        return get(baseUrl + "/api/trustlist?vct=" + urlEncode(vct));
+    }
+
+    public String getTrustListForDocType(String docType) {
+        return get(baseUrl + "/api/trustlist?doctype=" + urlEncode(docType));
+    }
+
+    public List<TrustListIndexEntry> getTrustLists() {
+        String body = get(baseUrl + "/api/trustlists");
+        try {
+            Map<String, Object> raw = MAPPER.readValue(body, new TypeReference<>() {});
+            Object trustLists = raw.get("trust_lists");
+            if (!(trustLists instanceof List<?> entries)) {
+                throw new WalletClientException("Failed to parse trust-list index response");
+            }
+            return entries.stream()
+                    .map(WalletClient::toTrustListIndexEntry)
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse trust-list index response", e);
+        }
     }
 
     public String getStatusList() {
@@ -203,5 +233,55 @@ public class WalletClient {
         }
         Map<String, Object> claims = (Map<String, Object>) raw.getOrDefault("claims", Map.of());
         return new Credential(id, format, type, claims);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TrustListIndexEntry toTrustListIndexEntry(Object raw) {
+        if (!(raw instanceof Map<?, ?> rawMap)) {
+            throw new WalletClientException("Failed to parse trust-list index entry");
+        }
+        Map<String, Object> map = (Map<String, Object>) rawMap;
+        List<TrustListAttestation> attestations = ((List<?>) map.getOrDefault("attestations", List.of())).stream()
+                .map(WalletClient::toTrustListAttestation)
+                .collect(Collectors.toList());
+        return new TrustListIndexEntry(
+                (String) map.get("id"),
+                Boolean.TRUE.equals(map.get("default")),
+                (String) map.get("path"),
+                (String) map.get("loTEType"),
+                (String) map.get("entityName"),
+                (String) map.get("issuanceServiceType"),
+                (String) map.get("revocationServiceType"),
+                attestations,
+                (String) map.get("advertised_url"),
+                (String) map.get("url")
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TrustListAttestation toTrustListAttestation(Object raw) {
+        if (!(raw instanceof Map<?, ?> rawMap)) {
+            throw new WalletClientException("Failed to parse trust-list attestation");
+        }
+        Map<String, Object> map = (Map<String, Object>) rawMap;
+        return new TrustListAttestation(
+                (String) map.get("format"),
+                (String) map.get("vct"),
+                (String) map.get("doctype"),
+                (List<String>) map.getOrDefault("entitlements", List.of()),
+                (String) map.get("trust_list_type"),
+                (String) map.get("status_determination_approach"),
+                (String) map.get("scheme_type_community_rules"),
+                (String) map.get("scheme_territory"),
+                (String) map.get("entity_name"),
+                (String) map.get("issuance_service_type"),
+                (String) map.get("revocation_service_type"),
+                (String) map.get("issuance_service_name"),
+                (String) map.get("revocation_service_name")
+        );
+    }
+
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }

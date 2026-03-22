@@ -25,6 +25,8 @@ import org.testcontainers.utility.DockerImageName;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -32,7 +34,7 @@ import java.util.regex.Pattern;
 
 public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev:latest";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev:v1.7.0";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final Pattern CERTIFICATE_PEM_PATTERN = Pattern.compile(
@@ -232,8 +234,57 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return getBaseUrl() + "/api/trustlist";
     }
 
+    public String getTrustListUrl(String id) {
+        return getTrustListsUrl() + "/" + urlEncode(id);
+    }
+
+    public String getTrustListUrlForVct(String vct) {
+        return getTrustListUrl() + "?vct=" + urlEncode(vct);
+    }
+
+    public String getTrustListUrlForDocType(String docType) {
+        return getTrustListUrl() + "?doctype=" + urlEncode(docType);
+    }
+
     public String getHttpsTrustListUrl() {
         return getHttpsBaseUrl() + "/api/trustlist";
+    }
+
+    public String getHttpsTrustListUrl(String id) {
+        return getHttpsTrustListsUrl() + "/" + urlEncode(id);
+    }
+
+    public String getHttpsTrustListUrlForVct(String vct) {
+        return getHttpsTrustListUrl() + "?vct=" + urlEncode(vct);
+    }
+
+    public String getHttpsTrustListUrlForDocType(String docType) {
+        return getHttpsTrustListUrl() + "?doctype=" + urlEncode(docType);
+    }
+
+    public String getTrustListsUrl() {
+        return getBaseUrl() + "/api/trustlists";
+    }
+
+    public String getHttpsTrustListsUrl() {
+        return getHttpsBaseUrl() + "/api/trustlists";
+    }
+
+    /**
+     * Resolves a trust-list discovery entry against this container's mapped
+     * HTTP wallet address. Prefer this over {@code entry.url()} when the wallet
+     * runs behind Docker port mappings or Testcontainers.
+     */
+    public String resolveTrustListUrl(TrustListIndexEntry entry) {
+        return entry.resolveUrl(getBaseUrl());
+    }
+
+    /**
+     * Resolves a trust-list discovery entry against this container's mapped
+     * HTTPS wallet address.
+     */
+    public String resolveHttpsTrustListUrl(TrustListIndexEntry entry) {
+        return entry.resolveUrl(getHttpsBaseUrl());
     }
 
     public String getIssuerUrl() {
@@ -364,6 +415,10 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     private static String shellEscape(String value) {
         return value.replace("'", "'\\''");
+    }
+
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private String execPemCommand(List<String> command, String description) {

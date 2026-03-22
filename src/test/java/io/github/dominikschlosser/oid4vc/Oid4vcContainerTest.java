@@ -15,11 +15,14 @@
  */
 package io.github.dominikschlosser.oid4vc;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.net.ssl.SSLContext;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -30,6 +33,7 @@ import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +44,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Testcontainers
 class Oid4vcContainerTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Container
     static Oid4vcContainer wallet = new Oid4vcContainer()
@@ -91,13 +97,92 @@ class Oid4vcContainerTest {
     }
 
     @Test
+    void trustListIndexExposesPidAndLocalProfiles() {
+        WalletClient client = wallet.client();
+        String vct = "urn:test:trust-list-index:1";
+        String sdJwt = new SdJwtCredentialBuilder()
+                .vct(vct)
+                .claim("name", "Trust List Index")
+                .build();
+
+        client.importCredential(sdJwt);
+        try {
+            List<TrustListIndexEntry> trustLists = client.getTrustLists();
+
+            assertThat(trustLists).extracting(TrustListIndexEntry::id).contains("pid", "local");
+            assertThat(trustLists).filteredOn(TrustListIndexEntry::defaultProfile).singleElement()
+                    .extracting(TrustListIndexEntry::id)
+                    .isEqualTo("pid");
+            assertThat(trustLists).filteredOn(entry -> "local".equals(entry.id())).singleElement()
+                    .satisfies(entry -> {
+                        assertThat(entry.path()).isEqualTo("/api/trustlists/local");
+                        assertThat(entry.advertisedUrl()).endsWith("/api/trustlists/local");
+                        assertThat(entry.url()).isEqualTo(entry.advertisedUrl());
+                        assertThat(entry.resolveUrl(wallet.getTrustListsUrl())).isEqualTo(wallet.getTrustListUrl("local"));
+                        assertThat(wallet.resolveTrustListUrl(entry)).isEqualTo(wallet.getTrustListUrl("local"));
+                        assertThat(wallet.resolveHttpsTrustListUrl(entry)).isEqualTo(wallet.getHttpsTrustListUrl("local"));
+                        assertThat(entry.attestations()).extracting(TrustListAttestation::vct).contains(vct);
+                    });
+        } finally {
+            client.deleteCredentialsByType(vct);
+        }
+    }
+
+    @Test
+    void trustListSelectorsReturnExpectedProfiles() throws Exception {
+        WalletClient client = wallet.client();
+        String localVct = "urn:test:trust-list-selector:1";
+        String sdJwt = new SdJwtCredentialBuilder()
+                .vct(localVct)
+                .claim("name", "Trust List Selector")
+                .build();
+
+        client.importCredential(sdJwt);
+        try {
+            String defaultTrustList = client.getTrustList();
+            String localTrustList = client.getTrustListById("local");
+            String localByVctTrustList = client.getTrustListForVct(localVct);
+
+            String pidDocType = client.getCredentials().stream()
+                    .filter(c -> c.format() == CredentialFormat.MSO_MDOC)
+                    .map(Credential::type)
+                    .findFirst()
+                    .orElseThrow();
+            String pidByDocTypeTrustList = client.getTrustListForDocType(pidDocType);
+
+            assertThat(trustListLoteType(defaultTrustList))
+                    .isEqualTo("http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList");
+            assertThat(trustListLoteType(localTrustList))
+                    .isEqualTo("http://uri.etsi.org/19602/LoTEType/local");
+            assertThat(trustListLoteType(localByVctTrustList))
+                    .isEqualTo("http://uri.etsi.org/19602/LoTEType/local");
+            assertThat(trustListLoteType(pidByDocTypeTrustList))
+                    .isEqualTo("http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList");
+        } finally {
+            client.deleteCredentialsByType(localVct);
+        }
+    }
+
+    @Test
     void urlAccessorsReturnMappedPort() {
         assertThat(wallet.getBaseUrl()).startsWith("http://");
         assertThat(wallet.getHttpsBaseUrl()).startsWith("https://");
         assertThat(wallet.getAuthorizeUrl()).endsWith("/authorize");
         assertThat(wallet.getHttpsAuthorizeUrl()).endsWith("/authorize");
         assertThat(wallet.getTrustListUrl()).endsWith("/api/trustlist");
+        assertThat(wallet.getTrustListsUrl()).endsWith("/api/trustlists");
+        assertThat(wallet.getTrustListUrl("local")).endsWith("/api/trustlists/local");
+        assertThat(wallet.getTrustListUrlForVct("urn:test:url accessor:1"))
+                .endsWith("/api/trustlist?vct=urn%3Atest%3Aurl+accessor%3A1");
+        assertThat(wallet.getTrustListUrlForDocType("org.iso.23220.photoid.1"))
+                .endsWith("/api/trustlist?doctype=org.iso.23220.photoid.1");
         assertThat(wallet.getHttpsTrustListUrl()).endsWith("/api/trustlist");
+        assertThat(wallet.getHttpsTrustListsUrl()).endsWith("/api/trustlists");
+        assertThat(wallet.getHttpsTrustListUrl("local")).endsWith("/api/trustlists/local");
+        assertThat(wallet.getHttpsTrustListUrlForVct("urn:test:url accessor:1"))
+                .endsWith("/api/trustlist?vct=urn%3Atest%3Aurl+accessor%3A1");
+        assertThat(wallet.getHttpsTrustListUrlForDocType("org.iso.23220.photoid.1"))
+                .endsWith("/api/trustlist?doctype=org.iso.23220.photoid.1");
         assertThat(wallet.getIssuerUrl()).startsWith("https://");
         assertThat(wallet.getIssuerMetadataUrl()).endsWith("/.well-known/jwt-vc-issuer");
         assertThat(wallet.getCredentialsUrl()).endsWith("/api/credentials");
@@ -420,5 +505,15 @@ class Oid4vcContainerTest {
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, trustManagerFactory.getTrustManagers(), null);
         return sslContext;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String trustListLoteType(String jwt) throws IOException {
+        String[] parts = jwt.split("\\.");
+        assertThat(parts).hasSizeGreaterThanOrEqualTo(2);
+        String payload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+        Map<String, Object> decoded = MAPPER.readValue(payload, new TypeReference<>() {});
+        Map<String, Object> schemeInfo = (Map<String, Object>) decoded.get("ListAndSchemeInformation");
+        return (String) schemeInfo.get("LoTEType");
     }
 }
