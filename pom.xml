@@ -6,7 +6,7 @@
 
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-oid4vc</artifactId>
-    <version>1.6.0</version>
+    <version>1.6.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Testcontainers OID4VC</name>
