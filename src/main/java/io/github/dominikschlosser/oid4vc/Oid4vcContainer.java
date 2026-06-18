@@ -29,6 +29,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -141,10 +142,20 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
      * the VM gateway on Docker Desktop). It is equivalent to Docker's
      * {@code --add-host=localhost:host-gateway} CLI flag.
      *
+     * <p>IPv6 is disabled inside the container so that {@code localhost} resolves
+     * over IPv4 to the mapped host gateway. Without this, on a Linux Docker host
+     * the wallet resolves {@code localhost} to its own {@code ::1} loopback first
+     * and never reaches the host (the mapping works on Docker Desktop regardless,
+     * which is why this only surfaces on Linux/CI).
+     *
      * <p>Combine with {@link org.testcontainers.Testcontainers#exposeHostPorts(int...)}
      * to make specific host ports accessible.
      */
     public Oid4vcContainer withHostAccess() {
+        withCreateContainerCmdModifier(cmd -> cmd.getHostConfig()
+                .withSysctls(Map.of(
+                        "net.ipv6.conf.all.disable_ipv6", "1",
+                        "net.ipv6.conf.default.disable_ipv6", "1")));
         return withExtraHost("localhost", "host-gateway");
     }
 
