@@ -13,7 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
-public record PresentationResponse(String redirectUri, String idToken, String rawBody) {
+/**
+ * Result of approving a pending consent request.
+ *
+ * @param status      {@code approved}
+ * @param redirectUri the verifier's redirect URI after a presentation submission, if any
+ * @param error       submission error, if the flow failed after approval
+ */
+public record ApprovalResult(String status, String redirectUri, String error) {
 }

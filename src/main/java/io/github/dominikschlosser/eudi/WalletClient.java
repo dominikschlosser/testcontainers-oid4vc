@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +51,223 @@ public class WalletClient {
         } catch (IOException e) {
             throw new WalletClientException("Failed to parse credentials response", e);
         }
+    }
+
+    public Credential getCredential(String id) {
+        String body = get(baseUrl + "/api/credentials/" + urlEncode(id));
+        return toCredential(parseObject(body, "credential response"));
+    }
+
+    /**
+     * Deletes all stored credentials and returns the number of deleted entries.
+     */
+    public int deleteAllCredentials() {
+        String body = delete(baseUrl + "/api/credentials");
+        Object deleted = parseObject(body, "delete-all response").get("deleted");
+        return deleted instanceof Number number ? number.intValue() : 0;
+    }
+
+    /**
+     * Resolves the live status of a credential: from the wallet's own status
+     * list when managed here, otherwise by fetching the external status list
+     * referenced by the credential.
+     */
+    public CredentialStatusInfo getCredentialStatus(String id) {
+        String body = get(baseUrl + "/api/credentials/" + urlEncode(id) + "/status");
+        return toStatusInfo(parseObject(body, "credential status response"));
+    }
+
+    /**
+     * Issues a credential with the wallet's issuer key and imports it into the
+     * wallet, mirroring {@code eudi issue sdjwt|jwt|mdoc --wallet}.
+     */
+    public Credential issueCredential(IssueRequest request) {
+        String body = postJson(baseUrl + "/api/issue", toJson(request.toBody()));
+        return toCredential(parseObject(body, "issue response"));
+    }
+
+    /**
+     * Returns all credential templates (pre-defined and user), including their
+     * claims.
+     */
+    public List<CredentialTemplate> getTemplates() {
+        String body = get(baseUrl + "/api/templates");
+        try {
+            List<Map<String, Object>> raw = MAPPER.readValue(body, new TypeReference<>() {});
+            return raw.stream()
+                    .map(WalletClient::toTemplate)
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse templates response", e);
+        }
+    }
+
+    public CredentialTemplate getTemplate(String name) {
+        String body = get(baseUrl + "/api/templates/" + urlEncode(name));
+        return toTemplate(parseObject(body, "template response"));
+    }
+
+    /**
+     * Creates or replaces a user template. Saving under a pre-defined
+     * template's name overrides it.
+     */
+    public CredentialTemplate saveTemplate(CredentialTemplate template) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        if (template.description() != null) {
+            body.put("description", template.description());
+        }
+        if (template.format() != null) {
+            body.put("format", template.format());
+        }
+        if (template.vct() != null) {
+            body.put("vct", template.vct());
+        }
+        if (template.docType() != null) {
+            body.put("doctype", template.docType());
+        }
+        if (template.namespace() != null) {
+            body.put("namespace", template.namespace());
+        }
+        if (template.exp() != null) {
+            body.put("exp", template.exp());
+        }
+        body.put("claims", template.claims());
+        if (template.alwaysDisclosed() != null && !template.alwaysDisclosed().isEmpty()) {
+            body.put("always_disclosed", template.alwaysDisclosed());
+        }
+        String response = putJson(baseUrl + "/api/templates/" + urlEncode(template.name()), toJson(body));
+        return toTemplate(parseObject(response, "template response"));
+    }
+
+    /**
+     * Removes a user template. Pre-defined templates cannot be deleted;
+     * deleting a user template that overrides one restores the pre-defined
+     * version.
+     */
+    public void deleteTemplate(String name) {
+        delete(baseUrl + "/api/templates/" + urlEncode(name));
+    }
+
+    /**
+     * Returns the shared wallet CA certificate as PEM.
+     */
+    public String getCaCertificatePem() {
+        return get(baseUrl + "/api/certificates/ca");
+    }
+
+    /**
+     * Returns the shared wallet CA certificate as a JWKS document (public key
+     * with {@code x5c} chain).
+     */
+    public String getCaCertificateJwks() {
+        return get(baseUrl + "/api/certificates/ca?format=jwks");
+    }
+
+    /**
+     * Returns the wallet's HTTPS leaf certificate as PEM.
+     */
+    public String getTlsCertificatePem() {
+        return get(baseUrl + "/api/certificates/tls");
+    }
+
+    /**
+     * Returns the wallet's HTTPS leaf certificate as a JWKS document (public
+     * key with {@code x5c} chain).
+     */
+    public String getTlsCertificateJwks() {
+        return get(baseUrl + "/api/certificates/tls?format=jwks");
+    }
+
+    /**
+     * Returns the wallet's activity log, useful for asserting what the wallet
+     * actually did during a flow.
+     */
+    public List<ActivityLogEntry> getActivityLog() {
+        String body = get(baseUrl + "/api/log");
+        try {
+            List<Map<String, Object>> raw = MAPPER.readValue(body, new TypeReference<>() {});
+            return raw.stream()
+                    .map(WalletClient::toActivityLogEntry)
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse activity log response", e);
+        }
+    }
+
+    public void clearActivityLog() {
+        delete(baseUrl + "/api/log");
+    }
+
+    /**
+     * Returns the pending consent requests of a wallet running without
+     * auto-accept.
+     */
+    public List<ConsentRequest> getPendingRequests() {
+        String body = get(baseUrl + "/api/requests");
+        try {
+            List<Map<String, Object>> raw = MAPPER.readValue(body, new TypeReference<>() {});
+            return raw.stream()
+                    .map(WalletClient::toConsentRequest)
+                    .collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse pending requests response", e);
+        }
+    }
+
+    /**
+     * Approves a pending consent request, disclosing all matched claims, and
+     * waits for the submission result.
+     */
+    public ApprovalResult approveRequest(String id) {
+        return approveRequest(id, null);
+    }
+
+    /**
+     * Approves a pending consent request, disclosing only the selected claims
+     * per credential id, and waits for the submission result.
+     */
+    public ApprovalResult approveRequest(String id, Map<String, List<String>> selectedClaims) {
+        String body = selectedClaims == null
+                ? toJson(Map.of())
+                : toJson(Map.of("selected_claims", selectedClaims));
+        String response = postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/approve", body);
+        Map<String, Object> parsed = parseObject(response, "approval response");
+        return new ApprovalResult(
+                (String) parsed.get("status"),
+                (String) parsed.get("redirect_uri"),
+                (String) parsed.get("error")
+        );
+    }
+
+    /**
+     * Denies a pending consent request.
+     */
+    public void denyRequest(String id) {
+        postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/deny", toJson(Map.of()));
+    }
+
+    /**
+     * Returns the wallet instance's introspection document.
+     */
+    public WalletConfig getConfig() {
+        Map<String, Object> raw = parseObject(get(baseUrl + "/api/config"), "config response");
+        return new WalletConfig(
+                asInt(raw.get("pid")),
+                asInt(raw.get("port")),
+                (String) raw.get("build_id"),
+                (String) raw.get("wallet_dir"),
+                (String) raw.get("templates_dir"),
+                (String) raw.get("base_url"),
+                (String) raw.get("issuer_url"),
+                (String) raw.get("status_list_url"),
+                (String) raw.get("preferred_format"),
+                (String) raw.get("validation_mode"),
+                Boolean.TRUE.equals(raw.get("auto_accept")),
+                (String) raw.get("session_transcript"),
+                Boolean.TRUE.equals(raw.get("require_haip")),
+                Boolean.TRUE.equals(raw.get("require_encrypted_request")),
+                asInt(raw.get("credential_count"))
+        );
     }
 
     public String getTrustList() {
@@ -232,7 +449,69 @@ public class WalletClient {
             type = (String) raw.get("doctype");
         }
         Map<String, Object> claims = (Map<String, Object>) raw.getOrDefault("claims", Map.of());
-        return new Credential(id, format, type, claims);
+        CredentialStatusInfo status = raw.get("status") instanceof Map<?, ?> statusMap
+                ? toStatusInfo((Map<String, Object>) statusMap)
+                : null;
+        return new Credential(id, format, type, claims, (String) raw.get("raw"), status);
+    }
+
+    private static CredentialStatusInfo toStatusInfo(Map<String, Object> raw) {
+        return new CredentialStatusInfo(
+                Boolean.TRUE.equals(raw.get("managed")),
+                raw.get("status") instanceof Number status ? status.intValue() : null,
+                (String) raw.get("source"),
+                (String) raw.get("uri"),
+                raw.get("idx") instanceof Number idx ? idx.intValue() : null
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CredentialTemplate toTemplate(Map<String, Object> raw) {
+        return new CredentialTemplate(
+                (String) raw.get("name"),
+                (String) raw.get("description"),
+                (String) raw.get("format"),
+                (String) raw.get("vct"),
+                (String) raw.get("doctype"),
+                (String) raw.get("namespace"),
+                (String) raw.get("exp"),
+                (Map<String, Object>) raw.getOrDefault("claims", Map.of()),
+                (List<String>) raw.getOrDefault("always_disclosed", List.of()),
+                Boolean.TRUE.equals(raw.get("predefined"))
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ActivityLogEntry toActivityLogEntry(Map<String, Object> raw) {
+        return new ActivityLogEntry(
+                (String) raw.get("time"),
+                (String) raw.get("action"),
+                (String) raw.get("detail"),
+                Boolean.TRUE.equals(raw.get("success")),
+                (Map<String, Object>) raw.getOrDefault("details", Map.of())
+        );
+    }
+
+    private static ConsentRequest toConsentRequest(Map<String, Object> raw) {
+        return new ConsentRequest(
+                (String) raw.get("id"),
+                (String) raw.get("type"),
+                (String) raw.get("status"),
+                (String) raw.get("client_id"),
+                (String) raw.get("created_at")
+        );
+    }
+
+    private static Map<String, Object> parseObject(String body, String description) {
+        try {
+            return MAPPER.readValue(body, new TypeReference<>() {});
+        } catch (IOException e) {
+            throw new WalletClientException("Failed to parse " + description, e);
+        }
+    }
+
+    private static int asInt(Object value) {
+        return value instanceof Number number ? number.intValue() : 0;
     }
 
     @SuppressWarnings("unchecked")

@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,93 +30,91 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
+/**
+ * Testcontainers wrapper for the <a href="https://github.com/dominikschlosser/eudi-dev">eudi-dev</a>
+ * wallet (formerly oid4vc-dev), providing a containerized EUDI test wallet for
+ * OID4VCI and OID4VP integration tests.
+ */
+public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/oid4vc-dev:v1.7.0";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.16.1";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
-    private static final Pattern CERTIFICATE_PEM_PATTERN = Pattern.compile(
-            "-----BEGIN CERTIFICATE-----\\R.+?\\R-----END CERTIFICATE-----",
-            Pattern.DOTALL
-    );
+    private static final String CONTAINER_TEMPLATES_DIR = "/templates";
 
     private boolean includeDefaultPid = true;
     private boolean autoAccept = true;
     private boolean statusList = false;
     private boolean requireEncryptedRequest = false;
+    private boolean haip = false;
+    private boolean strictValidation = false;
     private String baseUrl;
     private CredentialFormat preferredFormat;
     private String sessionTranscript;
+    private String vciClientId;
+    private String vciRedirectUri;
+    private boolean templatesDirectoryMounted = false;
     private PidClaims customPidClaims;
     private String customPidJson;
     private WalletClient cachedClient;
 
-    public Oid4vcContainer() {
+    public EudiWalletContainer() {
         this(DockerImageName.parse(DEFAULT_IMAGE));
     }
 
-    public Oid4vcContainer(String dockerImageName) {
+    public EudiWalletContainer(String dockerImageName) {
         this(DockerImageName.parse(dockerImageName));
     }
 
-    public Oid4vcContainer(DockerImageName dockerImageName) {
+    public EudiWalletContainer(DockerImageName dockerImageName) {
         super(dockerImageName);
         addExposedPort(WALLET_PORT);
         addExposedPort(ISSUER_TLS_PORT);
-        waitingFor(Wait.forHttp("/").forPort(WALLET_PORT));
-        withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("oid4vp-dev")));
+        waitingFor(Wait.forHttp("/api/version").forPort(WALLET_PORT));
+        withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("eudi-dev")));
     }
 
-    public Oid4vcContainer withoutDefaultPid() {
+    public EudiWalletContainer withoutDefaultPid() {
         this.includeDefaultPid = false;
         return this;
     }
 
-    public Oid4vcContainer withPidClaims(PidClaims claims) {
+    public EudiWalletContainer withPidClaims(PidClaims claims) {
         this.customPidClaims = claims;
         return this;
     }
 
-    public Oid4vcContainer withPidClaims(String json) {
+    public EudiWalletContainer withPidClaims(String json) {
         this.customPidJson = json;
         return this;
     }
 
-    public Oid4vcContainer withoutAutoAccept() {
+    public EudiWalletContainer withoutAutoAccept() {
         this.autoAccept = false;
         return this;
     }
 
-    public Oid4vcContainer withStatusList() {
+    public EudiWalletContainer withStatusList() {
         this.statusList = true;
         return this;
     }
 
     /**
-     * Sets the wallet base URL advertised by oid4vc-dev for its HTTP endpoints.
+     * Sets the wallet base URL advertised by eudi-dev for its HTTP endpoints.
      * The same host is also reused for the wallet's HTTPS endpoints.
      */
-    public Oid4vcContainer withBaseUrl(String baseUrl) {
+    public EudiWalletContainer withBaseUrl(String baseUrl) {
         this.baseUrl = baseUrl;
         return this;
     }
 
-    /**
-     * Compatibility alias for the older status-list-specific naming.
-     */
-    public Oid4vcContainer withStatusListBaseUrl(String baseUrl) {
-        return withBaseUrl(baseUrl);
-    }
-
-    public Oid4vcContainer withPreferredFormat(CredentialFormat format) {
+    public EudiWalletContainer withPreferredFormat(CredentialFormat format) {
         this.preferredFormat = format;
         return this;
     }
 
-    public Oid4vcContainer withSessionTranscript(String mode) {
+    public EudiWalletContainer withSessionTranscript(String mode) {
         this.sessionTranscript = mode;
         return this;
     }
@@ -126,8 +124,59 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
      * wallet advertises an encryption key in its {@code wallet_metadata} so that
      * verifiers can encrypt the Authorization Request using JWE.
      */
-    public Oid4vcContainer withRequireEncryptedRequest() {
+    public EudiWalletContainer withRequireEncryptedRequest() {
         this.requireEncryptedRequest = true;
+        return this;
+    }
+
+    /**
+     * Enforces HAIP 1.0 compliance (x509_hash client id prefix,
+     * {@code direct_post.jwt}, DCQL, JAR, ES256).
+     */
+    public EudiWalletContainer withHaip() {
+        this.haip = true;
+        return this;
+    }
+
+    /**
+     * Runs the wallet in {@code strict} validation mode instead of the lenient
+     * {@code debug} default, so spec violations by the issuer or verifier under
+     * test fail the flow instead of being logged and tolerated.
+     */
+    public EudiWalletContainer withStrictValidation() {
+        this.strictValidation = true;
+        return this;
+    }
+
+    /**
+     * Client ID the wallet should use for OID4VCI authorization-code flows.
+     */
+    public EudiWalletContainer withVciClientId(String clientId) {
+        this.vciClientId = clientId;
+        return this;
+    }
+
+    /**
+     * Redirect URI the wallet should use for OID4VCI authorization-code flows.
+     */
+    public EudiWalletContainer withVciRedirectUri(String redirectUri) {
+        this.vciRedirectUri = redirectUri;
+        return this;
+    }
+
+    /**
+     * Copies a host directory of credential template JSON files into the
+     * container and points the wallet at it via {@code --templates-dir}, so a
+     * project folder of shared templates works as a self-contained setup.
+     * Templates are also manageable at runtime via
+     * {@link WalletClient#saveTemplate(CredentialTemplate)}.
+     */
+    public EudiWalletContainer withTemplatesDirectory(Path hostDirectory) {
+        withCopyFileToContainer(
+                MountableFile.forHostPath(hostDirectory),
+                CONTAINER_TEMPLATES_DIR
+        );
+        this.templatesDirectoryMounted = true;
         return this;
     }
 
@@ -151,7 +200,7 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
      * <p>Combine with {@link org.testcontainers.Testcontainers#exposeHostPorts(int...)}
      * to make specific host ports accessible.
      */
-    public Oid4vcContainer withHostAccess() {
+    public EudiWalletContainer withHostAccess() {
         withCreateContainerCmdModifier(cmd -> cmd.getHostConfig()
                 .withSysctls(Map.of(
                         "net.ipv6.conf.all.disable_ipv6", "1",
@@ -195,6 +244,25 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         if (requireEncryptedRequest) {
             flags.add("--require-encrypted-request");
         }
+        if (haip) {
+            flags.add("--haip");
+        }
+        if (strictValidation) {
+            flags.add("--mode");
+            flags.add("strict");
+        }
+        if (vciClientId != null) {
+            flags.add("--vci-client-id");
+            flags.add(vciClientId);
+        }
+        if (vciRedirectUri != null) {
+            flags.add("--vci-redirect-uri");
+            flags.add(vciRedirectUri);
+        }
+        if (templatesDirectoryMounted) {
+            flags.add("--templates-dir");
+            flags.add(CONTAINER_TEMPLATES_DIR);
+        }
         return flags;
     }
 
@@ -213,9 +281,9 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         // generate-pid replaces any existing PID credentials, so --pid on serve
         // is unnecessary — the custom claims fully define the PID content.
         List<String> parts = new ArrayList<>();
-        parts.add("oid4vc-dev wallet generate-pid --claims '" + shellEscape(claimsJson) + "'");
+        parts.add("eudi wallet generate-pid --claims '" + shellEscape(claimsJson) + "'");
 
-        StringBuilder serveCmd = new StringBuilder("oid4vc-dev wallet serve");
+        StringBuilder serveCmd = new StringBuilder("eudi wallet serve");
         for (String flag : buildServeFlags()) {
             serveCmd.append(" ").append(flag);
         }
@@ -239,6 +307,19 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
 
     public String getHttpsAuthorizeUrl() {
         return getHttpsBaseUrl() + "/authorize";
+    }
+
+    /**
+     * The wallet's credential offer endpoint. Deliver an offer to
+     * {@code <url>?credential_offer_uri=...} (or {@code credential_offer=...})
+     * instead of the {@code openid-credential-offer://} custom scheme.
+     */
+    public String getCredentialOfferUrl() {
+        return getBaseUrl() + "/credential-offer";
+    }
+
+    public String getHttpsCredentialOfferUrl() {
+        return getHttpsBaseUrl() + "/credential-offer";
     }
 
     public String getTrustListUrl() {
@@ -310,6 +391,10 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return getBaseUrl() + "/api/credentials";
     }
 
+    public String getTemplatesUrl() {
+        return getBaseUrl() + "/api/templates";
+    }
+
     public String getStatusListUrl() {
         return getBaseUrl() + "/api/statuslist";
     }
@@ -348,18 +433,16 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
      * must validate sibling wallet certificates as well.
      */
     public String getWalletTlsCertificatePem() {
-        List<String> command = new ArrayList<>(List.of(
-                "oid4vc-dev",
-                "wallet",
-                "tls-cert"
-        ));
-        if (baseUrl != null) {
-            command.add("--base-url");
-            command.add(baseUrl);
-        }
-        command.add("--port");
-        command.add(String.valueOf(WALLET_PORT));
-        return execPemCommand(command, "wallet TLS certificate");
+        return client().getTlsCertificatePem();
+    }
+
+    /**
+     * Returns the wallet HTTPS leaf certificate as a JWKS document (public key
+     * with {@code x5c} chain), e.g. for pasting into Keycloak trust
+     * configuration.
+     */
+    public String getWalletTlsCertificateJwks() {
+        return client().getTlsCertificateJwks();
     }
 
     /**
@@ -374,10 +457,15 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
      * certificates and related x5c chains.
      */
     public String getWalletTlsCaCertificatePem() {
-        return execPemCommand(
-                List.of("oid4vc-dev", "wallet", "ca-cert"),
-                "wallet TLS CA certificate"
-        );
+        return client().getCaCertificatePem();
+    }
+
+    /**
+     * Returns the shared wallet CA certificate as a JWKS document (public key
+     * with {@code x5c} chain).
+     */
+    public String getWalletTlsCaCertificateJwks() {
+        return client().getCaCertificateJwks();
     }
 
     /**
@@ -385,36 +473,6 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
      */
     public Path exportWalletTlsCaCertificate(Path outputPath) {
         return writePem(outputPath, getWalletTlsCaCertificatePem(), "wallet TLS CA certificate");
-    }
-
-    /**
-     * Compatibility alias for callers using the v1.5.0 issuer-focused naming.
-     */
-    public String getIssuerTlsCertificatePem() {
-        return getWalletTlsCertificatePem();
-    }
-
-    /**
-     * Compatibility alias for callers using the v1.5.0 issuer-focused naming.
-     */
-    public Path exportIssuerTlsCertificate(Path outputPath) {
-        return exportWalletTlsCertificate(outputPath);
-    }
-
-    /**
-     * Compatibility alias for callers using issuer-focused naming for the
-     * shared wallet CA certificate.
-     */
-    public String getIssuerTlsCaCertificatePem() {
-        return getWalletTlsCaCertificatePem();
-    }
-
-    /**
-     * Compatibility alias for callers using issuer-focused naming for the
-     * shared wallet CA certificate.
-     */
-    public Path exportIssuerTlsCaCertificate(Path outputPath) {
-        return exportWalletTlsCaCertificate(outputPath);
     }
 
     private String resolveCustomPidJson() {
@@ -432,21 +490,6 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    private String execPemCommand(List<String> command, String description) {
-        try {
-            Container.ExecResult result = execInContainer(command.toArray(new String[0]));
-            if (result.getExitCode() != 0) {
-                throw new WalletClientException("Failed to export " + description + ": " + result.getStderr());
-            }
-            return normalizeCertificatePem(result.getStdout(), description);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new WalletClientException("Failed to export " + description, e);
-        } catch (IOException e) {
-            throw new WalletClientException("Failed to export " + description, e);
-        }
-    }
-
     private Path writePem(Path outputPath, String pem, String description) {
         try {
             Path parent = outputPath.getParent();
@@ -458,21 +501,5 @@ public class Oid4vcContainer extends GenericContainer<Oid4vcContainer> {
         } catch (IOException e) {
             throw new WalletClientException("Failed to write " + description + " to " + outputPath, e);
         }
-    }
-
-    private static String normalizeCertificatePem(String stdout, String description) {
-        String output = stdout.strip();
-        Matcher matcher = CERTIFICATE_PEM_PATTERN.matcher(output);
-        StringBuilder pem = new StringBuilder();
-        while (matcher.find()) {
-            if (!pem.isEmpty()) {
-                pem.append(System.lineSeparator());
-            }
-            pem.append(matcher.group().strip());
-        }
-        if (!pem.isEmpty()) {
-            return pem.toString();
-        }
-        throw new WalletClientException("Failed to export " + description + ": no PEM certificate found in command output");
     }
 }

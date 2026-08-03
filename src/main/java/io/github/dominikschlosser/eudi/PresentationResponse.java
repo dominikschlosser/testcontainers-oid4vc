@@ -13,15 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
-public class WalletClientException extends RuntimeException {
-
-    public WalletClientException(String message) {
-        super(message);
-    }
-
-    public WalletClientException(String message, Throwable cause) {
-        super(message, cause);
-    }
+public record PresentationResponse(String redirectUri, String idToken, String rawBody) {
 }
