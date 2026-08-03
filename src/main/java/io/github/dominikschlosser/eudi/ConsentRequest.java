@@ -21,7 +21,7 @@ package io.github.dominikschlosser.eudi;
  * {@link WalletClient#denyRequest(String)}.
  *
  * @param id        request id
- * @param type      request type, e.g. {@code presentation} or {@code offer}
+ * @param type      request type, {@code presentation} or {@code issuance}
  * @param status    request status, {@code pending} until resolved
  * @param clientId  the requesting verifier's client id, if any
  * @param createdAt RFC 3339 creation timestamp

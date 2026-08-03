@@ -47,7 +47,7 @@ class MyEudiTest {
 ```
 
 By default, the container starts with a pre-configured PID credential and auto-accept enabled.
-It uses `ghcr.io/dominikschlosser/eudi-dev:v1.16.1` by default. If you need a different image tag, pass it to the constructor.
+It uses `ghcr.io/dominikschlosser/eudi-dev:v1.18.4` by default. If you need a different image tag, pass it to the constructor.
 
 ### Configuration
 
@@ -209,19 +209,38 @@ String offerEndpoint = wallet.getCredentialOfferUrl(); // http://host:port/crede
 
 ### Consent handling without auto-accept
 
-With `withoutAutoAccept()`, incoming offers and presentation requests wait as
-pending consent requests that tests can inspect, approve, or deny:
+Consent is per channel. `acceptCredentialOffer(...)` and
+`acceptPresentationRequest(...)` always accept, even with
+`withoutAutoAccept()` — the API call is the caller's own consent. Requests
+arriving through interactive channels (the wallet's `/credential-offer` and
+`/authorize` URLs, or a custom-scheme dispatch) wait as pending consent
+requests on a wallet started with `withoutAutoAccept()`.
+
+To drive that consent dialog from a test, submit the offer or request as an
+interactive one. The wallet holds the submission open until it is decided, so
+the result arrives as a `CompletableFuture`:
 
 ```java
 WalletClient client = wallet.client();
 
-List<ConsentRequest> pending = client.getPendingRequests();
-ApprovalResult result = client.approveRequest(pending.getFirst().id());
+CompletableFuture<OfferResponse> submitted = client.submitCredentialOfferForConsent(offerUri);
+
+ConsentRequest request = client.awaitPendingRequest(Duration.ofSeconds(10));
+ApprovalResult result = client.approveRequest(request.id());
 String redirectUri = result.redirectUri();
 
-// or deny
-client.denyRequest(pending.getFirst().id());
+OfferResponse response = submitted.get();
 ```
+
+`submitPresentationRequestForConsent(...)` does the same for OID4VP requests,
+and `approveRequest(id, selectedClaims)` discloses only the selected claims per
+credential id. Denying resolves the submission with a `denied` status instead:
+
+```java
+client.denyRequest(request.id());
+```
+
+`getPendingRequests()` lists everything currently awaiting a decision.
 
 ### Credential management
 
@@ -266,7 +285,7 @@ lists by fetching them live.
 ```java
 WalletClient client = wallet.client();
 
-// Full instance configuration: ports, URLs, validation mode, credential count, ...
+// Full instance configuration: version, ports, URLs, validation mode, credential count, ...
 WalletConfig config = client.getConfig();
 
 // Activity log: assert what the wallet actually did during a flow

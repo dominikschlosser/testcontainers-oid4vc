@@ -25,13 +25,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class WalletClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final long POLL_INTERVAL_MILLIS = 50;
 
     private final String baseUrl;
     private final HttpClient httpClient;
@@ -201,6 +204,14 @@ public class WalletClient {
     /**
      * Returns the pending consent requests of a wallet running without
      * auto-accept.
+     *
+     * <p>Since eudi-dev v1.18.0 consent is per channel: plain
+     * {@link #acceptCredentialOffer(String)} and
+     * {@link #acceptPresentationRequest(String)} submissions auto-accept even
+     * without auto-accept, because the API call itself is the caller's consent.
+     * Use {@link #submitCredentialOfferForConsent(String)} or
+     * {@link #submitPresentationRequestForConsent(String)} to produce a pending
+     * request.
      */
     public List<ConsentRequest> getPendingRequests() {
         String body = get(baseUrl + "/api/requests");
@@ -247,6 +258,34 @@ public class WalletClient {
     }
 
     /**
+     * Waits for a consent request to appear and returns it, polling
+     * {@link #getPendingRequests()}. Use after
+     * {@link #submitCredentialOfferForConsent(String)} or
+     * {@link #submitPresentationRequestForConsent(String)}, which only register
+     * the request once the wallet has parsed the offer or request object.
+     *
+     * @throws WalletClientException if no request appears within the timeout
+     */
+    public ConsentRequest awaitPendingRequest(Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (true) {
+            List<ConsentRequest> pending = getPendingRequests();
+            if (!pending.isEmpty()) {
+                return pending.getFirst();
+            }
+            if (System.nanoTime() >= deadline) {
+                throw new WalletClientException("No consent request appeared within " + timeout);
+            }
+            try {
+                Thread.sleep(POLL_INTERVAL_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new WalletClientException("Interrupted while waiting for a consent request", e);
+            }
+        }
+    }
+
+    /**
      * Returns the wallet instance's introspection document.
      */
     public WalletConfig getConfig() {
@@ -255,6 +294,7 @@ public class WalletClient {
                 asInt(raw.get("pid")),
                 asInt(raw.get("port")),
                 (String) raw.get("build_id"),
+                (String) raw.get("version"),
                 (String) raw.get("wallet_dir"),
                 (String) raw.get("templates_dir"),
                 (String) raw.get("base_url"),
@@ -266,7 +306,8 @@ public class WalletClient {
                 (String) raw.get("session_transcript"),
                 Boolean.TRUE.equals(raw.get("require_haip")),
                 Boolean.TRUE.equals(raw.get("require_encrypted_request")),
-                asInt(raw.get("credential_count"))
+                asInt(raw.get("credential_count")),
+                Boolean.TRUE.equals(raw.get("tls_listener"))
         );
     }
 
@@ -338,30 +379,60 @@ public class WalletClient {
         setCredentialStatus(credentialId, 0);
     }
 
+    /**
+     * Submits an OID4VP request to the wallet and returns its response. The
+     * submission auto-accepts regardless of the wallet's auto-accept setting —
+     * the API call is the caller's consent. Use
+     * {@link #submitPresentationRequestForConsent(String)} to exercise the
+     * consent dialog instead.
+     */
     public PresentationResponse acceptPresentationRequest(String uri) {
         String body = postJson(baseUrl + "/api/presentations", toJson(Map.of("uri", uri)));
-        try {
-            Map<String, Object> parsed = MAPPER.readValue(body, new TypeReference<>() {});
-            String redirectUri = (String) parsed.get("redirect_uri");
-            String idToken = (String) parsed.get("id_token");
-            if (redirectUri == null) {
-                Object response = parsed.get("response");
-                if (response instanceof Map<?, ?> responseMap) {
-                    redirectUri = (String) responseMap.get("redirect_uri");
-                    if (idToken == null) {
-                        idToken = (String) responseMap.get("id_token");
-                    }
-                }
-            }
-            return new PresentationResponse(redirectUri, idToken, body);
-        } catch (IOException e) {
-            return new PresentationResponse(null, null, body);
-        }
+        return toPresentationResponse(body);
     }
 
+    /**
+     * Submits an OID4VP request as an interactive one, so a wallet running
+     * without auto-accept raises a consent request instead of accepting
+     * outright.
+     *
+     * <p>The wallet holds the submission open until the request is decided, so
+     * the result is returned asynchronously: wait for the request with
+     * {@link #awaitPendingRequest(Duration)}, resolve it with
+     * {@link #approveRequest(String)} or {@link #denyRequest(String)}, then
+     * join the returned future for the presentation response.
+     */
+    public CompletableFuture<PresentationResponse> submitPresentationRequestForConsent(String uri) {
+        return postJsonAsync(baseUrl + "/api/presentations", toJson(Map.of("uri", uri, "interactive", true)))
+                .thenApply(WalletClient::toPresentationResponse);
+    }
+
+    /**
+     * Submits a credential offer to the wallet and returns its response. The
+     * submission auto-accepts regardless of the wallet's auto-accept setting —
+     * the API call is the caller's consent. Use
+     * {@link #submitCredentialOfferForConsent(String)} to exercise the consent
+     * dialog instead.
+     */
     public OfferResponse acceptCredentialOffer(String uri) {
         String body = postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri)));
         return new OfferResponse(body);
+    }
+
+    /**
+     * Submits a credential offer as an interactive one, so a wallet running
+     * without auto-accept raises a consent request instead of importing the
+     * credential outright.
+     *
+     * <p>The wallet holds the submission open until the request is decided, so
+     * the result is returned asynchronously: wait for the request with
+     * {@link #awaitPendingRequest(Duration)}, resolve it with
+     * {@link #approveRequest(String)} or {@link #denyRequest(String)}, then
+     * join the returned future for the offer response.
+     */
+    public CompletableFuture<OfferResponse> submitCredentialOfferForConsent(String uri) {
+        return postJsonAsync(baseUrl + "/api/offers", toJson(Map.of("uri", uri, "interactive", true)))
+                .thenApply(OfferResponse::new);
     }
 
     public void deleteCredential(String id) {
@@ -390,11 +461,19 @@ public class WalletClient {
     }
 
     private String postJson(String url, String body) {
-        return sendRequest(HttpRequest.newBuilder()
+        return sendRequest(postJsonRequest(url, body));
+    }
+
+    private CompletableFuture<String> postJsonAsync(String url, String body) {
+        return sendRequestAsync(postJsonRequest(url, body));
+    }
+
+    private static HttpRequest postJsonRequest(String url, String body) {
+        return HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build());
+                .build();
     }
 
     private String postRaw(String url, String body) {
@@ -418,15 +497,29 @@ public class WalletClient {
 
     private String sendRequest(HttpRequest request) {
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
-                throw new WalletClientException("HTTP " + response.statusCode() + " " + request.method()
-                        + " " + request.uri() + ": " + response.body());
-            }
-            return response.body();
+            return requireSuccess(request, httpClient.send(request, HttpResponse.BodyHandlers.ofString()));
         } catch (IOException | InterruptedException e) {
             throw new WalletClientException("HTTP request failed: " + request.method() + " " + request.uri(), e);
         }
+    }
+
+    private CompletableFuture<String> sendRequestAsync(HttpRequest request) {
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .handle((response, throwable) -> {
+                    if (throwable != null) {
+                        throw new WalletClientException("HTTP request failed: " + request.method()
+                                + " " + request.uri(), throwable);
+                    }
+                    return requireSuccess(request, response);
+                });
+    }
+
+    private static String requireSuccess(HttpRequest request, HttpResponse<String> response) {
+        if (response.statusCode() >= 400) {
+            throw new WalletClientException("HTTP " + response.statusCode() + " " + request.method()
+                    + " " + request.uri() + ": " + response.body());
+        }
+        return response.body();
     }
 
     private static String toJson(Map<String, ?> map) {
@@ -500,6 +593,26 @@ public class WalletClient {
                 (String) raw.get("client_id"),
                 (String) raw.get("created_at")
         );
+    }
+
+    private static PresentationResponse toPresentationResponse(String body) {
+        try {
+            Map<String, Object> parsed = MAPPER.readValue(body, new TypeReference<>() {});
+            String redirectUri = (String) parsed.get("redirect_uri");
+            String idToken = (String) parsed.get("id_token");
+            if (redirectUri == null) {
+                Object response = parsed.get("response");
+                if (response instanceof Map<?, ?> responseMap) {
+                    redirectUri = (String) responseMap.get("redirect_uri");
+                    if (idToken == null) {
+                        idToken = (String) responseMap.get("id_token");
+                    }
+                }
+            }
+            return new PresentationResponse(redirectUri, idToken, body);
+        } catch (IOException e) {
+            return new PresentationResponse(null, null, body);
+        }
     }
 
     private static Map<String, Object> parseObject(String body, String description) {

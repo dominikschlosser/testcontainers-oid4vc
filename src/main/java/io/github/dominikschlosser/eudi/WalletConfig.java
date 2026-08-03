@@ -18,11 +18,17 @@ package io.github.dominikschlosser.eudi;
 /**
  * The wallet instance's introspection document ({@code GET /api/config}):
  * identity, storage locations, advertised URLs, and runtime behavior.
+ *
+ * <p>{@code tlsListener} is false when an external TLS terminator serves the
+ * issuer origin (an https {@code --base-url}). The built-in HTTPS listener is
+ * disabled then, so {@link EudiWalletContainer#getHttpsBaseUrl()} and the
+ * exported wallet TLS certificate do not apply.
  */
 public record WalletConfig(
         int pid,
         int port,
         String buildId,
+        String version,
         String walletDir,
         String templatesDir,
         String baseUrl,
@@ -34,6 +40,7 @@ public record WalletConfig(
         String sessionTranscript,
         boolean requireHaip,
         boolean requireEncryptedRequest,
-        int credentialCount
+        int credentialCount,
+        boolean tlsListener
 ) {
 }

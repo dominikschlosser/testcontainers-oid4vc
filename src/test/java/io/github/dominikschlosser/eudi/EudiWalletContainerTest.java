@@ -33,10 +33,13 @@ import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.TrustManagerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -599,6 +602,10 @@ class EudiWalletContainerTest {
         assertThat(config.validationMode()).isEqualTo("debug");
         assertThat(config.credentialCount()).isGreaterThan(0);
         assertThat(config.buildId()).isNotBlank();
+        assertThat(config.version()).isNotBlank();
+        // no external TLS terminator, so the built-in HTTPS listener serves
+        // getHttpsBaseUrl()
+        assertThat(config.tlsListener()).isTrue();
     }
 
     @Test
@@ -616,6 +623,77 @@ class EudiWalletContainerTest {
     @Test
     void pendingRequestsAreEmptyOnAutoAcceptWallet() {
         assertThat(wallet.client().getPendingRequests()).isEmpty();
+    }
+
+    @Test
+    void apiSubmissionsAutoAcceptEvenWithoutAutoAccept() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+            assertThat(client.getConfig().autoAccept()).isFalse();
+
+            // since eudi-dev v1.18.0 a plain API submission is the caller's own
+            // consent, so it imports without raising a consent request
+            int countBefore = client.getCredentials().size();
+            client.acceptCredentialOffer(demoCredentialOffer(consentWallet));
+
+            assertThat(client.getPendingRequests()).isEmpty();
+            assertThat(client.getCredentials()).hasSize(countBefore + 1);
+        }
+    }
+
+    @Test
+    void interactiveOfferSubmissionCanBeApprovedAndDenied() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+            int countBefore = client.getCredentials().size();
+
+            CompletableFuture<OfferResponse> approved =
+                    client.submitCredentialOfferForConsent(demoCredentialOffer(consentWallet));
+            ConsentRequest request = client.awaitPendingRequest(Duration.ofSeconds(10));
+            assertThat(request.type()).isEqualTo("issuance");
+            assertThat(request.status()).isEqualTo("pending");
+
+            ApprovalResult result = client.approveRequest(request.id());
+            assertThat(result.status()).isEqualTo("approved");
+            assertThat(approved.get(10, TimeUnit.SECONDS).rawBody()).contains("credential_id");
+            assertThat(client.getPendingRequests()).isEmpty();
+            assertThat(client.getCredentials()).hasSize(countBefore + 1);
+
+            CompletableFuture<OfferResponse> denied =
+                    client.submitCredentialOfferForConsent(demoCredentialOffer(consentWallet));
+            client.denyRequest(client.awaitPendingRequest(Duration.ofSeconds(10)).id());
+
+            assertThat(denied.get(10, TimeUnit.SECONDS).rawBody()).contains("\"status\":\"denied\"");
+            assertThat(client.getCredentials()).hasSize(countBefore + 1);
+        }
+    }
+
+    @Test
+    void awaitPendingRequestTimesOutWhenNothingIsPending() {
+        assertThatThrownBy(() -> wallet.client().awaitPendingRequest(Duration.ofMillis(200)))
+                .isInstanceOf(WalletClientException.class)
+                .hasMessageContaining("No consent request appeared");
+    }
+
+    /**
+     * Creates a credential offer with the wallet's own built-in demo issuer
+     * (mounted at {@code /issuer} since eudi-dev v1.17.0), so the consent tests
+     * need no external issuer.
+     */
+    private static String demoCredentialOffer(EudiWalletContainer container) throws Exception {
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(container.getBaseUrl() + "/issuer/api/offers"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        assertThat(response.statusCode()).isBetween(200, 299);
+        Map<String, Object> offer = MAPPER.readValue(response.body(), new TypeReference<>() {});
+        return (String) offer.get("scheme_uri");
     }
 
     @Test

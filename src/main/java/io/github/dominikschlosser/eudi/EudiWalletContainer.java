@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Testcontainers wrapper for the <a href="https://github.com/dominikschlosser/eudi-dev">eudi-dev</a>
@@ -38,7 +39,7 @@ import java.util.Map;
  */
 public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.16.1";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.18.4";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
@@ -409,6 +410,20 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
     public PresentationResponse acceptPresentationRequest(String uri) {
         return client().acceptPresentationRequest(uri);
+    }
+
+    /**
+     * @see WalletClient#submitCredentialOfferForConsent(String)
+     */
+    public CompletableFuture<OfferResponse> submitCredentialOfferForConsent(String uri) {
+        return client().submitCredentialOfferForConsent(uri);
+    }
+
+    /**
+     * @see WalletClient#submitPresentationRequestForConsent(String)
+     */
+    public CompletableFuture<PresentationResponse> submitPresentationRequestForConsent(String uri) {
+        return client().submitPresentationRequestForConsent(uri);
     }
 
     public List<Credential> listCredentials() {
