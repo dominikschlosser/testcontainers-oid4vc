@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,12 +43,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Testcontainers
-class Oid4vcContainerTest {
+class EudiWalletContainerTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Container
-    static Oid4vcContainer wallet = new Oid4vcContainer()
+    static EudiWalletContainer wallet = new EudiWalletContainer()
             .withStatusList();
 
     @Test
@@ -186,13 +186,16 @@ class Oid4vcContainerTest {
         assertThat(wallet.getIssuerUrl()).startsWith("https://");
         assertThat(wallet.getIssuerMetadataUrl()).endsWith("/.well-known/jwt-vc-issuer");
         assertThat(wallet.getCredentialsUrl()).endsWith("/api/credentials");
+        assertThat(wallet.getCredentialOfferUrl()).endsWith("/credential-offer");
+        assertThat(wallet.getHttpsCredentialOfferUrl()).endsWith("/credential-offer");
+        assertThat(wallet.getTemplatesUrl()).endsWith("/api/templates");
         assertThat(wallet.getStatusListUrl()).endsWith("/api/statuslist");
         assertThat(wallet.getHttpsStatusListUrl()).endsWith("/api/statuslist");
     }
 
     @Test
     void customPidClaims() {
-        try (Oid4vcContainer customWallet = new Oid4vcContainer()
+        try (EudiWalletContainer customWallet = new EudiWalletContainer()
                 .withPidClaims(new SdJwtPidClaims()
                         .givenName("MAX")
                         .familyName("POWER"))) {
@@ -335,7 +338,7 @@ class Oid4vcContainerTest {
 
     @Test
     void withHostAccessConfiguresContainer() {
-        try (Oid4vcContainer hostWallet = new Oid4vcContainer()
+        try (EudiWalletContainer hostWallet = new EudiWalletContainer()
                 .withHostAccess()) {
             hostWallet.start();
             assertThat(hostWallet.isRunning()).isTrue();
@@ -346,7 +349,7 @@ class Oid4vcContainerTest {
 
     @Test
     void withRequireEncryptedRequestStartsSuccessfully() {
-        try (Oid4vcContainer encWallet = new Oid4vcContainer()
+        try (EudiWalletContainer encWallet = new EudiWalletContainer()
                 .withRequireEncryptedRequest()) {
             encWallet.start();
             assertThat(encWallet.isRunning()).isTrue();
@@ -383,7 +386,7 @@ class Oid4vcContainerTest {
 
     @Test
     void walletTlsCertificateCanBeWrittenToFile() throws Exception {
-        Path certificateFile = Files.createTempFile("oid4vc-issuer", ".pem");
+        Path certificateFile = Files.createTempFile("eudi-wallet", ".pem");
 
         Path exportedPath = wallet.exportWalletTlsCertificate(certificateFile);
 
@@ -401,7 +404,7 @@ class Oid4vcContainerTest {
 
     @Test
     void walletTlsCaCertificateCanBeWrittenToFile() throws Exception {
-        Path certificateFile = Files.createTempFile("oid4vc-wallet-ca", ".pem");
+        Path certificateFile = Files.createTempFile("eudi-wallet-ca", ".pem");
 
         Path exportedPath = wallet.exportWalletTlsCaCertificate(certificateFile);
 
@@ -477,13 +480,156 @@ class Oid4vcContainerTest {
     }
 
     @Test
-    void issuerTlsCertificateMethodsRemainAsAliases() {
-        assertThat(wallet.getIssuerTlsCertificatePem()).isEqualTo(wallet.getWalletTlsCertificatePem());
+    void certificatesCanBeExportedAsJwks() throws Exception {
+        String tlsJwks = wallet.getWalletTlsCertificateJwks();
+        String caJwks = wallet.getWalletTlsCaCertificateJwks();
+
+        Map<String, Object> parsedTls = MAPPER.readValue(tlsJwks, new TypeReference<>() {});
+        Map<String, Object> parsedCa = MAPPER.readValue(caJwks, new TypeReference<>() {});
+        assertThat((List<?>) parsedTls.get("keys")).isNotEmpty();
+        assertThat((List<?>) parsedCa.get("keys")).isNotEmpty();
+        assertThat(tlsJwks).contains("x5c");
     }
 
     @Test
-    void issuerTlsCaCertificateMethodsRemainAsAliases() {
-        assertThat(wallet.getIssuerTlsCaCertificatePem()).isEqualTo(wallet.getWalletTlsCaCertificatePem());
+    void issueCredentialFromPredefinedTemplate() {
+        WalletClient client = wallet.client();
+
+        Credential issued = client.issueCredential(IssueRequest.fromTemplate("german-pid-sdjwt")
+                .claim("given_name", "TEMPLATE")
+                .claim("family_name", "OVERRIDE"));
+
+        try {
+            assertThat(issued.id()).isNotBlank();
+            assertThat(issued.format()).isEqualTo(CredentialFormat.SD_JWT);
+            assertThat(issued.claims())
+                    .containsEntry("given_name", "TEMPLATE")
+                    .containsEntry("family_name", "OVERRIDE");
+            // untouched template claims stay in place
+            assertThat(issued.claims()).containsKey("birthdate");
+            assertThat(issued.raw()).isNotBlank();
+        } finally {
+            client.deleteCredential(issued.id());
+        }
+    }
+
+    @Test
+    void issueFreeFormSdJwtCredential() {
+        WalletClient client = wallet.client();
+
+        Credential issued = client.issueCredential(IssueRequest.sdJwt("urn:test:issued:1")
+                .claim("given_name", "Jane")
+                .claim("family_name", "Doe")
+                .alwaysDisclosed("given_name")
+                .ttl(java.time.Duration.ofHours(1)));
+
+        try {
+            assertThat(issued.type()).isEqualTo("urn:test:issued:1");
+            assertThat(client.getCredential(issued.id()).id()).isEqualTo(issued.id());
+            assertThat(client.hasCredentialWithType("urn:test:issued:1")).isTrue();
+        } finally {
+            client.deleteCredential(issued.id());
+        }
+    }
+
+    @Test
+    void issuedCredentialCarriesResolvableStatus() {
+        WalletClient client = wallet.client();
+
+        // the shared wallet runs with --status-list, so issued credentials get
+        // a managed status list reference
+        Credential issued = client.issueCredential(IssueRequest.sdJwt("urn:test:status:1")
+                .claim("name", "Status Test"));
+
+        try {
+            assertThat(issued.status()).isNotNull();
+            assertThat(issued.status().managed()).isTrue();
+            assertThat(issued.status().uri()).isNotBlank();
+
+            CredentialStatusInfo active = client.getCredentialStatus(issued.id());
+            assertThat(active.managed()).isTrue();
+            assertThat(active.isRevoked()).isFalse();
+
+            client.revokeCredential(issued.id());
+            CredentialStatusInfo revoked = client.getCredentialStatus(issued.id());
+            assertThat(revoked.isRevoked()).isTrue();
+
+            client.unrevokeCredential(issued.id());
+            assertThat(client.getCredentialStatus(issued.id()).isRevoked()).isFalse();
+        } finally {
+            client.deleteCredential(issued.id());
+        }
+    }
+
+    @Test
+    void templatesCanBeListedSavedAndDeleted() {
+        WalletClient client = wallet.client();
+
+        assertThat(client.getTemplates())
+                .filteredOn(CredentialTemplate::predefined)
+                .extracting(CredentialTemplate::name)
+                .contains("german-pid-sdjwt", "german-pid-mdoc");
+
+        CredentialTemplate saved = client.saveTemplate(CredentialTemplate.named("test-template")
+                .withFormat("sdjwt")
+                .withVct("urn:test:template:1")
+                .withClaims(Map.of("given_name", "Templated")));
+        try {
+            assertThat(saved.name()).isEqualTo("test-template");
+            assertThat(client.getTemplate("test-template").vct()).isEqualTo("urn:test:template:1");
+
+            Credential issued = client.issueCredential(IssueRequest.fromTemplate("test-template"));
+            assertThat(issued.type()).isEqualTo("urn:test:template:1");
+            assertThat(issued.claims()).containsEntry("given_name", "Templated");
+            client.deleteCredential(issued.id());
+        } finally {
+            client.deleteTemplate("test-template");
+        }
+
+        assertThatThrownBy(() -> client.getTemplate("test-template"))
+                .isInstanceOf(WalletClientException.class);
+    }
+
+    @Test
+    void configExposesInstanceIntrospection() {
+        WalletConfig config = wallet.client().getConfig();
+
+        assertThat(config.port()).isEqualTo(8085);
+        assertThat(config.autoAccept()).isTrue();
+        assertThat(config.validationMode()).isEqualTo("debug");
+        assertThat(config.credentialCount()).isGreaterThan(0);
+        assertThat(config.buildId()).isNotBlank();
+    }
+
+    @Test
+    void activityLogCanBeReadAndCleared() {
+        WalletClient client = wallet.client();
+
+        // trigger at least one loggable action
+        client.getCredentials();
+        assertThat(client.getActivityLog()).isNotNull();
+
+        client.clearActivityLog();
+        assertThat(client.getActivityLog()).isNotNull();
+    }
+
+    @Test
+    void pendingRequestsAreEmptyOnAutoAcceptWallet() {
+        assertThat(wallet.client().getPendingRequests()).isEmpty();
+    }
+
+    @Test
+    void deleteAllCredentialsRemovesEverything() {
+        try (EudiWalletContainer scratchWallet = new EudiWalletContainer()) {
+            scratchWallet.start();
+            WalletClient client = scratchWallet.client();
+            assertThat(client.getCredentials()).isNotEmpty();
+
+            int deleted = client.deleteAllCredentials();
+
+            assertThat(deleted).isGreaterThan(0);
+            assertThat(client.getCredentials()).isEmpty();
+        }
     }
 
     private static SSLContext sslContextFromPem(String pem) throws Exception {
@@ -496,7 +642,7 @@ class Oid4vcContainerTest {
         trustStore.load(null, null);
         int index = 0;
         for (Certificate certificate : certificates) {
-            trustStore.setCertificateEntry("oid4vc-dev-cert-" + index++, certificate);
+            trustStore.setCertificateEntry("eudi-dev-cert-" + index++, certificate);
         }
 
         TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
@@ -513,7 +659,8 @@ class Oid4vcContainerTest {
         assertThat(parts).hasSizeGreaterThanOrEqualTo(2);
         String payload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
         Map<String, Object> decoded = MAPPER.readValue(payload, new TypeReference<>() {});
-        Map<String, Object> schemeInfo = (Map<String, Object>) decoded.get("ListAndSchemeInformation");
+        Map<String, Object> lote = (Map<String, Object>) decoded.get("LoTE");
+        Map<String, Object> schemeInfo = (Map<String, Object>) lote.get("ListAndSchemeInformation");
         return (String) schemeInfo.get("LoTEType");
     }
 }

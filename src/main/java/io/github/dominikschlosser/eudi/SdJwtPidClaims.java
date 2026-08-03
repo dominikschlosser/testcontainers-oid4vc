@@ -13,151 +13,144 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
-public class MdocPidClaims implements PidClaims {
+public class SdJwtPidClaims implements PidClaims {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final Map<String, Object> claims = new LinkedHashMap<>();
 
-    public MdocPidClaims givenName(String value) {
+    public SdJwtPidClaims givenName(String value) {
         claims.put("given_name", value);
         return this;
     }
 
-    public MdocPidClaims familyName(String value) {
+    public SdJwtPidClaims familyName(String value) {
         claims.put("family_name", value);
         return this;
     }
 
-    public MdocPidClaims birthDate(String value) {
-        claims.put("birth_date", value);
+    public SdJwtPidClaims birthdate(String value) {
+        claims.put("birthdate", value);
         return this;
     }
 
-    public MdocPidClaims nationality(String value) {
-        claims.put("nationality", value);
+    public SdJwtPidClaims nationalities(String... values) {
+        claims.put("nationalities", Arrays.asList(values));
         return this;
     }
 
-    public MdocPidClaims residentAddress(String value) {
-        claims.put("resident_address", value);
+    public SdJwtPidClaims nationalities(List<String> values) {
+        claims.put("nationalities", values);
         return this;
     }
 
-    public MdocPidClaims residentCountry(String value) {
-        claims.put("resident_country", value);
+    public SdJwtPidClaims address(String streetAddress, String locality, String postalCode, String country) {
+        Map<String, String> addr = new LinkedHashMap<>();
+        addr.put("street_address", streetAddress);
+        addr.put("locality", locality);
+        addr.put("postal_code", postalCode);
+        addr.put("country", country);
+        claims.put("address", addr);
         return this;
     }
 
-    public MdocPidClaims residentState(String value) {
-        claims.put("resident_state", value);
+    public SdJwtPidClaims address(String streetAddress, String locality, String postalCode, String country, String region) {
+        Map<String, String> addr = new LinkedHashMap<>();
+        addr.put("street_address", streetAddress);
+        addr.put("locality", locality);
+        addr.put("postal_code", postalCode);
+        addr.put("country", country);
+        addr.put("region", region);
+        claims.put("address", addr);
         return this;
     }
 
-    public MdocPidClaims residentCity(String value) {
-        claims.put("resident_city", value);
-        return this;
-    }
-
-    public MdocPidClaims residentPostalCode(String value) {
-        claims.put("resident_postal_code", value);
-        return this;
-    }
-
-    public MdocPidClaims residentStreet(String value) {
-        claims.put("resident_street", value);
-        return this;
-    }
-
-    public MdocPidClaims residentHouseNumber(String value) {
-        claims.put("resident_house_number", value);
-        return this;
-    }
-
-    public MdocPidClaims gender(String value) {
+    public SdJwtPidClaims gender(String value) {
         claims.put("gender", value);
         return this;
     }
 
-    public MdocPidClaims birthPlace(String value) {
+    public SdJwtPidClaims birthPlace(String value) {
         claims.put("birth_place", value);
         return this;
     }
 
-    public MdocPidClaims birthCountry(String value) {
+    public SdJwtPidClaims birthCountry(String value) {
         claims.put("birth_country", value);
         return this;
     }
 
-    public MdocPidClaims birthState(String value) {
+    public SdJwtPidClaims birthState(String value) {
         claims.put("birth_state", value);
         return this;
     }
 
-    public MdocPidClaims birthCity(String value) {
+    public SdJwtPidClaims birthCity(String value) {
         claims.put("birth_city", value);
         return this;
     }
 
-    public MdocPidClaims familyNameBirth(String value) {
+    public SdJwtPidClaims familyNameBirth(String value) {
         claims.put("family_name_birth", value);
         return this;
     }
 
-    public MdocPidClaims givenNameBirth(String value) {
+    public SdJwtPidClaims givenNameBirth(String value) {
         claims.put("given_name_birth", value);
         return this;
     }
 
-    public MdocPidClaims ageOver18(boolean value) {
+    public SdJwtPidClaims ageOver18(boolean value) {
         claims.put("age_over_18", value);
         return this;
     }
 
-    public MdocPidClaims ageInYears(int value) {
+    public SdJwtPidClaims ageInYears(int value) {
         claims.put("age_in_years", value);
         return this;
     }
 
-    public MdocPidClaims ageBirthYear(int value) {
+    public SdJwtPidClaims ageBirthYear(int value) {
         claims.put("age_birth_year", value);
         return this;
     }
 
-    public MdocPidClaims issuanceDate(String value) {
+    public SdJwtPidClaims issuanceDate(String value) {
         claims.put("issuance_date", value);
         return this;
     }
 
-    public MdocPidClaims expiryDate(String value) {
+    public SdJwtPidClaims expiryDate(String value) {
         claims.put("expiry_date", value);
         return this;
     }
 
-    public MdocPidClaims issuingAuthority(String value) {
+    public SdJwtPidClaims issuingAuthority(String value) {
         claims.put("issuing_authority", value);
         return this;
     }
 
-    public MdocPidClaims issuingCountry(String value) {
+    public SdJwtPidClaims issuingCountry(String value) {
         claims.put("issuing_country", value);
         return this;
     }
 
-    public MdocPidClaims issuingJurisdiction(String value) {
+    public SdJwtPidClaims issuingJurisdiction(String value) {
         claims.put("issuing_jurisdiction", value);
         return this;
     }
 
-    public MdocPidClaims claim(String key, Object value) {
+    public SdJwtPidClaims claim(String key, Object value) {
         claims.put(key, value);
         return this;
     }

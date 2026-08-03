@@ -13,9 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
-import java.util.Map;
-
-public record Credential(String id, CredentialFormat format, String type, Map<String, Object> claims) {
+public record OfferResponse(String rawBody) {
 }

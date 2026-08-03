@@ -13,8 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
-public interface PidClaims {
-    String toJson();
+import java.util.List;
+
+public record TrustListAttestation(
+        String format,
+        String vct,
+        String docType,
+        List<String> entitlements,
+        String trustListType,
+        String statusDeterminationApproach,
+        String schemeTypeCommunityRules,
+        String schemeTerritory,
+        String entityName,
+        String issuanceServiceType,
+        String revocationServiceType,
+        String issuanceServiceName,
+        String revocationServiceName
+) {
 }

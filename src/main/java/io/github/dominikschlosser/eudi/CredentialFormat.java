@@ -13,7 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.dominikschlosser.oid4vc;
+package io.github.dominikschlosser.eudi;
 
-public record OfferResponse(String rawBody) {
+public enum CredentialFormat {
+    SD_JWT("dc+sd-jwt"),
+    MSO_MDOC("mso_mdoc"),
+    JWT_VC_JSON("jwt_vc_json");
+
+    private final String wireValue;
+
+    CredentialFormat(String wireValue) {
+        this.wireValue = wireValue;
+    }
+
+    public String getWireValue() {
+        return wireValue;
+    }
+
+    public static CredentialFormat fromWireValue(String value) {
+        for (CredentialFormat format : values()) {
+            if (format.wireValue.equals(value)) {
+                return format;
+            }
+        }
+        return null;
+    }
 }
