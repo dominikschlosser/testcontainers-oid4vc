@@ -39,7 +39,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.18.4";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.21.6";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";

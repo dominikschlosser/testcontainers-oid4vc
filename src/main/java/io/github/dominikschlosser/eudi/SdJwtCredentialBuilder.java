@@ -31,6 +31,7 @@ import com.nimbusds.jwt.SignedJWT;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -101,25 +102,6 @@ public class SdJwtCredentialBuilder {
     public String build() {
         List<Disclosure> disclosures = new ArrayList<>();
 
-        // Create disclosures for flat claims
-        for (var entry : flatClaims.entrySet()) {
-            disclosures.add(new Disclosure(entry.getKey(), entry.getValue()));
-        }
-
-        // Create disclosures for object claims (each sub-field is a separate disclosure)
-        for (var entry : objectClaims.entrySet()) {
-            for (var field : entry.getValue().entrySet()) {
-                disclosures.add(new Disclosure(entry.getKey() + "." + field.getKey(), field.getValue()));
-            }
-        }
-
-        // Create disclosures for array claims (per-element)
-        for (var entry : arrayClaims.entrySet()) {
-            for (Object element : entry.getValue()) {
-                disclosures.add(new Disclosure(entry.getKey(), element));
-            }
-        }
-
         // Build JWT claims
         Instant now = Instant.now();
         JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
@@ -136,13 +118,42 @@ public class SdJwtCredentialBuilder {
             claimsBuilder.claim("cnf", Map.of("jwk", holderBindingKey.toPublicJWK().toJSONObject()));
         }
 
-        // Add _sd digests for disclosures
+        // Flat claims: one selectively disclosable claim each, referenced from
+        // the top-level _sd array
         List<String> sdDigests = new ArrayList<>();
-        for (Disclosure disclosure : disclosures) {
+        for (var entry : flatClaims.entrySet()) {
+            Disclosure disclosure = new Disclosure(entry.getKey(), entry.getValue());
+            disclosures.add(disclosure);
             sdDigests.add(disclosure.digest());
         }
         if (!sdDigests.isEmpty()) {
+            Collections.sort(sdDigests);
             claimsBuilder.claim("_sd", sdDigests);
+        }
+
+        // Object claims: each sub-field is a separate disclosure, referenced
+        // from an _sd array nested inside the object claim
+        for (var entry : objectClaims.entrySet()) {
+            List<String> subDigests = new ArrayList<>();
+            for (var field : entry.getValue().entrySet()) {
+                Disclosure disclosure = new Disclosure(field.getKey(), field.getValue());
+                disclosures.add(disclosure);
+                subDigests.add(disclosure.digest());
+            }
+            Collections.sort(subDigests);
+            claimsBuilder.claim(entry.getKey(), Map.of("_sd", subDigests));
+        }
+
+        // Array claims: each element is a separate disclosure, referenced by a
+        // {"...": digest} placeholder in the array
+        for (var entry : arrayClaims.entrySet()) {
+            List<Map<String, Object>> elements = new ArrayList<>();
+            for (Object element : entry.getValue()) {
+                Disclosure disclosure = new Disclosure(element);
+                disclosures.add(disclosure);
+                elements.add(disclosure.toArrayElement());
+            }
+            claimsBuilder.claim(entry.getKey(), elements);
         }
 
         // Sign the JWT

@@ -47,7 +47,7 @@ class MyEudiTest {
 ```
 
 By default, the container starts with a pre-configured PID credential and auto-accept enabled.
-It uses `ghcr.io/dominikschlosser/eudi-dev:v1.18.4` by default. If you need a different image tag, pass it to the constructor.
+It uses `ghcr.io/dominikschlosser/eudi-dev:v1.21.6` by default. If you need a different image tag, pass it to the constructor.
 
 ### Configuration
 

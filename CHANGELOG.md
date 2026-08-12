@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Renamed to `testcontainers-eudi`**, following the wrapped tool's rename from `oid4vc-dev` to [`eudi-dev`](https://github.com/dominikschlosser/eudi-dev). The Maven artifact is `io.github.dominikschlosser:testcontainers-eudi`, the Java package is `io.github.dominikschlosser.eudi`, and the container class is `EudiWalletContainer`. Versions up to 1.6.0 remain available as `testcontainers-oid4vc`
-- pinned the default wallet image to `ghcr.io/dominikschlosser/eudi-dev:v1.18.4`
+- pinned the default wallet image to `ghcr.io/dominikschlosser/eudi-dev:v1.21.6`
+- the default PID is the country-independent EUDI PID since eudi-dev v1.19.3: the SD-JWT `vct` is `urn:eudi:pid:1` (was `urn:eudi:pid:de:1`) and every mdoc element sits in `eu.europa.ec.eudi.pid.1` with no national namespace. Verifier configurations and DCQL queries matching on the old `vct` have to be updated
 - container readiness now waits on `GET /api/version` instead of `/`
 - TLS certificate exports now use the wallet management HTTP API (`GET /api/certificates/tls|ca`) instead of `exec`ing the CLI in the container
 - `Credential` now carries the raw credential (`raw()`) and its status-list metadata (`status()`)
@@ -29,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JWKS certificate exports (`getWalletTlsCertificateJwks()`, `getWalletTlsCaCertificateJwks()`), e.g. for Keycloak trust configuration
 - credential offer endpoint URLs (`getCredentialOfferUrl()`, `getHttpsCredentialOfferUrl()`) for delivering offers by plain web URL instead of the `openid-credential-offer://` scheme
 - new container options: `withHaip()` (enforce HAIP 1.0), `withStrictValidation()` (strict wallet validation mode), `withVciClientId(...)` / `withVciRedirectUri(...)` (OID4VCI authorization-code flows)
+
+### Fixed
+
+- `SdJwtCredentialBuilder` emits RFC 9901-conformant selective disclosure now: object claims nest their sub-field digests in an `_sd` array inside the object (instead of literal dotted top-level names like `address.city`), and array claims disclose per element through `{"...": <digest>}` placeholders (instead of several disclosures sharing one claim name, which resolves to a duplicate claim). eudi-dev enforces RFC 9901 §7.1 on import since v1.19.18 and rejects the old shapes
+- `getTrustLists()` no longer fails on a trust-list profile without attestations, such as the wallet-provider list eudi-dev serves since v1.19.1
 
 ### Removed
 

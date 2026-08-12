@@ -633,9 +633,13 @@ public class WalletClient {
             throw new WalletClientException("Failed to parse trust-list index entry");
         }
         Map<String, Object> map = (Map<String, Object>) rawMap;
-        List<TrustListAttestation> attestations = ((List<?>) map.getOrDefault("attestations", List.of())).stream()
-                .map(WalletClient::toTrustListAttestation)
-                .collect(Collectors.toList());
+        // "attestations" may be an explicit null (e.g. the wallet-provider
+        // profile, which anchors wallet attestations rather than credentials)
+        List<TrustListAttestation> attestations = map.get("attestations") instanceof List<?> rawAttestations
+                ? rawAttestations.stream()
+                        .map(WalletClient::toTrustListAttestation)
+                        .collect(Collectors.toList())
+                : List.of();
         return new TrustListIndexEntry(
                 (String) map.get("id"),
                 Boolean.TRUE.equals(map.get("default")),
