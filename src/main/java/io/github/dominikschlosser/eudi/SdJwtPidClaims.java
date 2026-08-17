@@ -23,6 +23,18 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Claim overrides for the wallet's generated SD-JWT PID, merged on top of the
+ * default claim set. Since eudi-dev v1.22.0 the default PID follows the EUDI
+ * PID Rulebook (vct {@code urn:eudi:pid:1}), whose attributes these builder
+ * methods mirror. Overrides replace a claim wholesale, so nested claims like
+ * {@code address} and {@code place_of_birth} are set as complete objects.
+ *
+ * <p>Claims outside the rulebook — including the German PID's national
+ * additions when generating with
+ * {@link EudiWalletContainer#withPidType(String)} — can be set with
+ * {@link #claim(String, Object)}.
+ */
 public class SdJwtPidClaims implements PidClaims {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -41,6 +53,34 @@ public class SdJwtPidClaims implements PidClaims {
 
     public SdJwtPidClaims birthdate(String value) {
         claims.put("birthdate", value);
+        return this;
+    }
+
+    public SdJwtPidClaims birthFamilyName(String value) {
+        claims.put("birth_family_name", value);
+        return this;
+    }
+
+    /**
+     * Sex per ISO/IEC 5218: 0 unknown, 1 male, 2 female, 9 not applicable.
+     */
+    public SdJwtPidClaims sex(int value) {
+        claims.put("sex", value);
+        return this;
+    }
+
+    public SdJwtPidClaims placeOfBirth(String locality) {
+        Map<String, String> place = new LinkedHashMap<>();
+        place.put("locality", locality);
+        claims.put("place_of_birth", place);
+        return this;
+    }
+
+    public SdJwtPidClaims placeOfBirth(String locality, String country) {
+        Map<String, String> place = new LinkedHashMap<>();
+        place.put("locality", locality);
+        place.put("country", country);
+        claims.put("place_of_birth", place);
         return this;
     }
 
@@ -75,63 +115,40 @@ public class SdJwtPidClaims implements PidClaims {
         return this;
     }
 
-    public SdJwtPidClaims gender(String value) {
-        claims.put("gender", value);
+    /**
+     * The full rulebook address: the house number is its own subclaim, kept
+     * out of {@code street_address}.
+     */
+    public SdJwtPidClaims address(String streetAddress, String houseNumber, String postalCode, String locality,
+                                  String region, String country) {
+        Map<String, String> addr = new LinkedHashMap<>();
+        addr.put("street_address", streetAddress);
+        addr.put("house_number", houseNumber);
+        addr.put("postal_code", postalCode);
+        addr.put("locality", locality);
+        addr.put("region", region);
+        addr.put("country", country);
+        claims.put("address", addr);
         return this;
     }
 
-    public SdJwtPidClaims birthPlace(String value) {
-        claims.put("birth_place", value);
+    public SdJwtPidClaims personalAdministrativeNumber(String value) {
+        claims.put("personal_administrative_number", value);
         return this;
     }
 
-    public SdJwtPidClaims birthCountry(String value) {
-        claims.put("birth_country", value);
+    public SdJwtPidClaims documentNumber(String value) {
+        claims.put("document_number", value);
         return this;
     }
 
-    public SdJwtPidClaims birthState(String value) {
-        claims.put("birth_state", value);
+    public SdJwtPidClaims dateOfIssuance(String value) {
+        claims.put("date_of_issuance", value);
         return this;
     }
 
-    public SdJwtPidClaims birthCity(String value) {
-        claims.put("birth_city", value);
-        return this;
-    }
-
-    public SdJwtPidClaims familyNameBirth(String value) {
-        claims.put("family_name_birth", value);
-        return this;
-    }
-
-    public SdJwtPidClaims givenNameBirth(String value) {
-        claims.put("given_name_birth", value);
-        return this;
-    }
-
-    public SdJwtPidClaims ageOver18(boolean value) {
-        claims.put("age_over_18", value);
-        return this;
-    }
-
-    public SdJwtPidClaims ageInYears(int value) {
-        claims.put("age_in_years", value);
-        return this;
-    }
-
-    public SdJwtPidClaims ageBirthYear(int value) {
-        claims.put("age_birth_year", value);
-        return this;
-    }
-
-    public SdJwtPidClaims issuanceDate(String value) {
-        claims.put("issuance_date", value);
-        return this;
-    }
-
-    public SdJwtPidClaims expiryDate(String value) {
-        claims.put("expiry_date", value);
+    public SdJwtPidClaims dateOfExpiry(String value) {
+        claims.put("date_of_expiry", value);
         return this;
     }
 

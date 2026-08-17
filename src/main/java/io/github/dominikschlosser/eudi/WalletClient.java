@@ -302,10 +302,13 @@ public class WalletClient {
                 (String) raw.get("status_list_url"),
                 (String) raw.get("preferred_format"),
                 (String) raw.get("validation_mode"),
+                (String) raw.get("vci_version"),
                 Boolean.TRUE.equals(raw.get("auto_accept")),
                 (String) raw.get("session_transcript"),
                 Boolean.TRUE.equals(raw.get("require_haip")),
+                Boolean.TRUE.equals(raw.get("require_haip_issuance")),
                 Boolean.TRUE.equals(raw.get("require_encrypted_request")),
+                Boolean.TRUE.equals(raw.get("force_client_attestation")),
                 asInt(raw.get("credential_count")),
                 Boolean.TRUE.equals(raw.get("tls_listener"))
         );
@@ -361,6 +364,57 @@ public class WalletClient {
 
     public void clearPreferredFormat() {
         putJson(baseUrl + "/api/config/preferred-format", toJson(Map.of("format", "")));
+    }
+
+    /**
+     * Changes the wallet's validation mode at runtime, part of the
+     * conformance settings ({@code PUT /api/config/conformance}). Holds until
+     * the process restarts or {@link #resetConformance()}.
+     */
+    public void setValidationMode(ValidationMode mode) {
+        putConformance("mode", mode.getWireValue());
+    }
+
+    /**
+     * Changes the wallet's OpenID4VCI feature level at runtime, part of the
+     * conformance settings ({@code PUT /api/config/conformance}, since
+     * eudi-dev v1.23.0). See {@link VciVersion} for what
+     * {@link VciVersion#V1_1} enables. Holds until the process restarts or
+     * {@link #resetConformance()}.
+     */
+    public void setVciVersion(VciVersion version) {
+        putConformance("vci_version", version.getWireValue());
+    }
+
+    /**
+     * Toggles HAIP 1.0 enforcement at runtime, part of the conformance
+     * settings ({@code PUT /api/config/conformance}). Holds until the process
+     * restarts or {@link #resetConformance()}.
+     */
+    public void setRequireHaip(boolean required) {
+        putConformance("haip", required);
+    }
+
+    /**
+     * Toggles the encrypted-request-object requirement at runtime, part of
+     * the conformance settings ({@code PUT /api/config/conformance}). Holds
+     * until the process restarts or {@link #resetConformance()}.
+     */
+    public void setRequireEncryptedRequest(boolean required) {
+        putConformance("encrypted", required);
+    }
+
+    /**
+     * Restores the conformance settings (validation mode, HAIP, encrypted
+     * requests, OpenID4VCI feature level) the wallet was started with
+     * ({@code DELETE /api/config/conformance}).
+     */
+    public void resetConformance() {
+        delete(baseUrl + "/api/config/conformance");
+    }
+
+    private void putConformance(String key, Object value) {
+        putJson(baseUrl + "/api/config/conformance", toJson(Map.of(key, value)));
     }
 
     public void importCredential(String rawCredential) {

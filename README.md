@@ -20,7 +20,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>io.github.dominikschlosser</groupId>
     <artifactId>testcontainers-eudi</artifactId>
-    <version>2.0.0</version>
+    <version>2.2.0</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -47,7 +47,7 @@ class MyEudiTest {
 ```
 
 By default, the container starts with a pre-configured PID credential and auto-accept enabled.
-It uses `ghcr.io/dominikschlosser/eudi-dev:v1.21.6` by default. If you need a different image tag, pass it to the constructor.
+It uses `ghcr.io/dominikschlosser/eudi-dev:v1.24.1` by default. If you need a different image tag, pass it to the constructor.
 
 ### Configuration
 
@@ -61,10 +61,25 @@ EudiWalletContainer wallet = new EudiWalletContainer()
     .withRequireEncryptedRequest()                   // require encrypted request objects (wallet_metadata)
     .withHaip()                                      // enforce HAIP 1.0 compliance
     .withStrictValidation()                          // fail flows on spec violations instead of tolerating them
+    .withVciVersion(VciVersion.V1_1)                 // OpenID4VCI feature level (enables interactive authorization)
     .withVciClientId("my-wallet")                    // client id for OID4VCI authorization-code flows
     .withVciRedirectUri("http://localhost:8085/callback")
+    .withPidType("urn:eudi:pid:de:1")                // generate the German PID instead of the country-independent one
     .withoutAutoAccept()                             // disable auto-accept mode
     .withoutDefaultPid();                            // disable default PID credential
+```
+
+Validation mode, HAIP, the encrypted-request requirement and the OpenID4VCI
+feature level are also changeable at runtime, without restarting the
+container:
+
+```java
+WalletClient client = wallet.client();
+client.setValidationMode(ValidationMode.STRICT);
+client.setRequireHaip(true);
+client.setRequireEncryptedRequest(true);
+client.setVciVersion(VciVersion.V1_1);
+client.resetConformance();      // restore the settings the wallet started with
 ```
 
 #### Custom PID claims
@@ -94,6 +109,19 @@ Or provide raw JSON:
 ```java
 EudiWalletContainer wallet = new EudiWalletContainer()
     .withPidClaims("{\"given_name\": \"Jane\", \"family_name\": \"Doe\"}");
+```
+
+The builders mirror the EUDI PID Rulebook attributes the default PID carries.
+`withPidType(...)` selects another PID type — `urn:eudi:pid:de:1` generates
+the German PID with its national additions, which are set through the generic
+`claim(name, value)` escape hatch:
+
+```java
+EudiWalletContainer wallet = new EudiWalletContainer()
+    .withPidType("urn:eudi:pid:de:1")
+    .withPidClaims(new SdJwtPidClaims()
+        .givenName("Jane")
+        .claim("birth_name", "Doe"));
 ```
 
 ### Wallet client
@@ -133,8 +161,8 @@ String customTrustListByVct = client.getTrustListForVct("urn:example:my-credenti
 
 The wallet can issue credentials with its own issuer key and import them
 directly — no separate issuer needed. Issue from one of the pre-defined
-templates (`german-pid-sdjwt`, `german-pid-mdoc`), a saved template, or
-free-form:
+templates (`pid-sdjwt`, `pid-mdoc`, `german-pid-sdjwt`, `german-pid-mdoc`), a
+saved template, or free-form:
 
 ```java
 WalletClient client = wallet.client();

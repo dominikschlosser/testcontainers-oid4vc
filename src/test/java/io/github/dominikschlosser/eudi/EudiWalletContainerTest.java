@@ -213,6 +213,27 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void germanPidTypeGeneratesGermanPid() {
+        try (EudiWalletContainer germanWallet = new EudiWalletContainer()
+                .withPidType("urn:eudi:pid:de:1")
+                .withPidClaims(new SdJwtPidClaims()
+                        .givenName("MAX"))) {
+            germanWallet.start();
+
+            List<Credential> credentials = germanWallet.listCredentials();
+            assertThat(credentials)
+                    .filteredOn(c -> c.format() == CredentialFormat.SD_JWT)
+                    .anyMatch(c -> "urn:eudi:pid:de:1".equals(c.type())
+                            && "MAX".equals(c.claims().get("given_name")));
+            // ISO 18013-5 has no doctype inheritance: the German mdoc PID
+            // keeps the country-independent doctype and differs by namespace
+            assertThat(credentials)
+                    .filteredOn(c -> c.format() == CredentialFormat.MSO_MDOC)
+                    .anyMatch(c -> "eu.europa.ec.eudi.pid.1".equals(c.type()));
+        }
+    }
+
+    @Test
     void setAndClearNextError() {
         WalletClient client = wallet.client();
 
@@ -600,12 +621,43 @@ class EudiWalletContainerTest {
         assertThat(config.port()).isEqualTo(8085);
         assertThat(config.autoAccept()).isTrue();
         assertThat(config.validationMode()).isEqualTo("debug");
+        assertThat(config.vciVersion()).isEqualTo("1.0");
+        assertThat(config.requireHaip()).isFalse();
+        assertThat(config.requireHaipIssuance()).isFalse();
+        assertThat(config.requireEncryptedRequest()).isFalse();
+        assertThat(config.forceClientAttestation()).isFalse();
         assertThat(config.credentialCount()).isGreaterThan(0);
         assertThat(config.buildId()).isNotBlank();
         assertThat(config.version()).isNotBlank();
         // no external TLS terminator, so the built-in HTTPS listener serves
         // getHttpsBaseUrl()
         assertThat(config.tlsListener()).isTrue();
+    }
+
+    @Test
+    void conformanceSettingsCanBeChangedAndReset() {
+        WalletClient client = wallet.client();
+
+        try {
+            client.setVciVersion(VciVersion.V1_1);
+            client.setValidationMode(ValidationMode.STRICT);
+            client.setRequireHaip(true);
+            client.setRequireEncryptedRequest(true);
+
+            WalletConfig changed = client.getConfig();
+            assertThat(changed.vciVersion()).isEqualTo("1.1");
+            assertThat(changed.validationMode()).isEqualTo("strict");
+            assertThat(changed.requireHaip()).isTrue();
+            assertThat(changed.requireEncryptedRequest()).isTrue();
+        } finally {
+            client.resetConformance();
+        }
+
+        WalletConfig restored = wallet.client().getConfig();
+        assertThat(restored.vciVersion()).isEqualTo("1.0");
+        assertThat(restored.validationMode()).isEqualTo("debug");
+        assertThat(restored.requireHaip()).isFalse();
+        assertThat(restored.requireEncryptedRequest()).isFalse();
     }
 
     @Test
@@ -677,14 +729,42 @@ class EudiWalletContainerTest {
                 .hasMessageContaining("No consent request appeared");
     }
 
+    @Test
+    void interactiveAuthorizationRedeemsOfferByPresentingPid() throws Exception {
+        try (EudiWalletContainer vciWallet = new EudiWalletContainer()
+                .withVciVersion(VciVersion.V1_1)) {
+            vciWallet.start();
+            WalletClient client = vciWallet.client();
+            assertThat(client.getConfig().vciVersion()).isEqualTo("1.1");
+
+            // an authorization-code offer whose issuer requires a PID
+            // presentation at its authorization challenge endpoint
+            // (OpenID4VCI 1.1 §6) instead of a browser sign-in
+            String offerUri = demoCredentialOffer(vciWallet,
+                    "?grant=authorization_code&authorization=presentation");
+
+            OfferResponse response = client.acceptCredentialOffer(offerUri);
+
+            assertThat(response.rawBody()).contains("credential_id");
+            // the demo issuer only issues its ticket once the wallet's PID
+            // presentation was verified, so holding it proves the interactive
+            // authorization ran end to end
+            assertThat(client.hasCredentialWithType("urn:eudi-test:demo-ticket:1")).isTrue();
+        }
+    }
+
     /**
      * Creates a credential offer with the wallet's own built-in demo issuer
      * (mounted at {@code /issuer} since eudi-dev v1.17.0), so the consent tests
      * need no external issuer.
      */
     private static String demoCredentialOffer(EudiWalletContainer container) throws Exception {
+        return demoCredentialOffer(container, "");
+    }
+
+    private static String demoCredentialOffer(EudiWalletContainer container, String query) throws Exception {
         HttpResponse<String> response = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(container.getBaseUrl() + "/issuer/api/offers"))
+                HttpRequest.newBuilder(URI.create(container.getBaseUrl() + "/issuer/api/offers" + query))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString("{}"))
                         .build(),

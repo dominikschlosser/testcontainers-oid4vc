@@ -39,7 +39,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
-    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.21.6";
+    private static final String DEFAULT_IMAGE = "ghcr.io/dominikschlosser/eudi-dev:v1.24.1";
     private static final int WALLET_PORT = 8085;
     private static final int ISSUER_TLS_PORT = 8086;
     private static final String CONTAINER_TEMPLATES_DIR = "/templates";
@@ -53,11 +53,13 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     private String baseUrl;
     private CredentialFormat preferredFormat;
     private String sessionTranscript;
+    private VciVersion vciVersion;
     private String vciClientId;
     private String vciRedirectUri;
     private boolean templatesDirectoryMounted = false;
     private PidClaims customPidClaims;
     private String customPidJson;
+    private String pidType;
     private WalletClient cachedClient;
 
     public EudiWalletContainer() {
@@ -88,6 +90,19 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
 
     public EudiWalletContainer withPidClaims(String json) {
         this.customPidJson = json;
+        return this;
+    }
+
+    /**
+     * Selects the PID type (SD-JWT {@code vct}) the wallet's default PID
+     * credentials are generated as, and with it the claim set:
+     * {@code urn:eudi:pid:1} is the country-independent EUDI PID (the
+     * default), {@code urn:eudi:pid:de:1} the German PID with its national
+     * additions. Any other type is generated with the country-independent
+     * claim set. Since eudi-dev v1.22.0.
+     */
+    public EudiWalletContainer withPidType(String vct) {
+        this.pidType = vct;
         return this;
     }
 
@@ -146,6 +161,24 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
      */
     public EudiWalletContainer withStrictValidation() {
         this.strictValidation = true;
+        return this;
+    }
+
+    /**
+     * Selects the OpenID4VCI feature level the wallet uses as a client
+     * ({@code --vci-version}, since eudi-dev v1.23.0). At
+     * {@link VciVersion#V1_1} the wallet uses interactive authorization
+     * (OpenID4VCI 1.1 §6) against an issuer whose authorization server
+     * publishes an {@code authorization_challenge_endpoint}: it redeems an
+     * authorization-code offer by presenting a credential it holds instead of
+     * going through a browser redirect, needing no
+     * {@link #withVciRedirectUri(String)}. The container's built-in demo
+     * issuer also publishes its challenge endpoint at this level, so
+     * {@code POST /issuer/api/offers?grant=authorization_code&authorization=presentation}
+     * exercises the full flow.
+     */
+    public EudiWalletContainer withVciVersion(VciVersion version) {
+        this.vciVersion = version;
         return this;
     }
 
@@ -213,8 +246,8 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
     protected void configure() {
         String claimsJson = resolveCustomPidJson();
 
-        if (claimsJson != null) {
-            configureWithCustomPid(claimsJson);
+        if (claimsJson != null || pidType != null) {
+            configureWithGeneratedPid(claimsJson);
         } else {
             configureStandard();
         }
@@ -252,6 +285,10 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
             flags.add("--mode");
             flags.add("strict");
         }
+        if (vciVersion != null) {
+            flags.add("--vci-version");
+            flags.add(vciVersion.getWireValue());
+        }
         if (vciClientId != null) {
             flags.add("--vci-client-id");
             flags.add(vciClientId);
@@ -278,11 +315,18 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         setCommand(cmd.toArray(new String[0]));
     }
 
-    private void configureWithCustomPid(String claimsJson) {
+    private void configureWithGeneratedPid(String claimsJson) {
         // generate-pid replaces any existing PID credentials, so --pid on serve
-        // is unnecessary — the custom claims fully define the PID content.
+        // is unnecessary — the generated PID fully defines the PID content.
         List<String> parts = new ArrayList<>();
-        parts.add("eudi wallet generate-pid --claims '" + shellEscape(claimsJson) + "'");
+        StringBuilder generateCmd = new StringBuilder("eudi wallet generate-pid");
+        if (pidType != null) {
+            generateCmd.append(" --vct '").append(shellEscape(pidType)).append("'");
+        }
+        if (claimsJson != null) {
+            generateCmd.append(" --claims '").append(shellEscape(claimsJson)).append("'");
+        }
+        parts.add(generateCmd.toString());
 
         StringBuilder serveCmd = new StringBuilder("eudi wallet serve");
         for (String flag : buildServeFlags()) {

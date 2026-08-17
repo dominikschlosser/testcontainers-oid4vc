@@ -18,9 +18,24 @@ package io.github.dominikschlosser.eudi;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * Claim overrides for the wallet's generated mdoc PID, merged on top of the
+ * default claim set. Since eudi-dev v1.22.0 the default PID follows the EUDI
+ * PID Rulebook (doctype {@code eu.europa.ec.eudi.pid.1}), whose ISO 18013-5
+ * attribute identifiers these builder methods mirror. Overrides replace a
+ * claim wholesale, so the nested {@code place_of_birth} is set as a complete
+ * object.
+ *
+ * <p>Elements outside the rulebook can be set with
+ * {@link #claim(String, Object)}. The German PID's national elements (when
+ * generating with {@link EudiWalletContainer#withPidType(String)}) live in
+ * their own namespace, addressed with a {@code namespace:element} claim key,
+ * e.g. {@code claim("eu.europa.ec.eudi.pid.de.1:birth_name", "GABLER")}.
+ */
 public class MdocPidClaims implements PidClaims {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -42,8 +57,40 @@ public class MdocPidClaims implements PidClaims {
         return this;
     }
 
-    public MdocPidClaims nationality(String value) {
-        claims.put("nationality", value);
+    public MdocPidClaims familyNameBirth(String value) {
+        claims.put("family_name_birth", value);
+        return this;
+    }
+
+    /**
+     * Sex per ISO/IEC 5218: 0 unknown, 1 male, 2 female, 9 not applicable.
+     */
+    public MdocPidClaims sex(int value) {
+        claims.put("sex", value);
+        return this;
+    }
+
+    public MdocPidClaims placeOfBirth(String locality) {
+        Map<String, String> place = new LinkedHashMap<>();
+        place.put("locality", locality);
+        claims.put("place_of_birth", place);
+        return this;
+    }
+
+    public MdocPidClaims placeOfBirth(String locality, String country) {
+        Map<String, String> place = new LinkedHashMap<>();
+        place.put("locality", locality);
+        place.put("country", country);
+        claims.put("place_of_birth", place);
+        return this;
+    }
+
+    /**
+     * The holder's nationalities. The {@code nationality} element carries an
+     * array of country codes.
+     */
+    public MdocPidClaims nationality(String... values) {
+        claims.put("nationality", Arrays.asList(values));
         return this;
     }
 
@@ -82,53 +129,13 @@ public class MdocPidClaims implements PidClaims {
         return this;
     }
 
-    public MdocPidClaims gender(String value) {
-        claims.put("gender", value);
+    public MdocPidClaims personalAdministrativeNumber(String value) {
+        claims.put("personal_administrative_number", value);
         return this;
     }
 
-    public MdocPidClaims birthPlace(String value) {
-        claims.put("birth_place", value);
-        return this;
-    }
-
-    public MdocPidClaims birthCountry(String value) {
-        claims.put("birth_country", value);
-        return this;
-    }
-
-    public MdocPidClaims birthState(String value) {
-        claims.put("birth_state", value);
-        return this;
-    }
-
-    public MdocPidClaims birthCity(String value) {
-        claims.put("birth_city", value);
-        return this;
-    }
-
-    public MdocPidClaims familyNameBirth(String value) {
-        claims.put("family_name_birth", value);
-        return this;
-    }
-
-    public MdocPidClaims givenNameBirth(String value) {
-        claims.put("given_name_birth", value);
-        return this;
-    }
-
-    public MdocPidClaims ageOver18(boolean value) {
-        claims.put("age_over_18", value);
-        return this;
-    }
-
-    public MdocPidClaims ageInYears(int value) {
-        claims.put("age_in_years", value);
-        return this;
-    }
-
-    public MdocPidClaims ageBirthYear(int value) {
-        claims.put("age_birth_year", value);
+    public MdocPidClaims documentNumber(String value) {
+        claims.put("document_number", value);
         return this;
     }
 
