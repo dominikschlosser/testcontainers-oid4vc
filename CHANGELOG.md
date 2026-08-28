@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-08-28
+
+### Changed
+
+- pinned the default wallet image to `ghcr.io/dominikschlosser/eudi-dev:v2.0.7` (from `v1.24.2`), moving to the eudi-dev 2.x line: the wallet redesign around the credential card, batch and deferred issuance, short hex credential ids, and the country-independent PID carrying the EUDI PID Rulebook's Jan Wijnand example instead of the German specimen. The builder API is unchanged, so overrides keep working; a test that asserts specific default-PID values reads the rulebook example now (`family_name` is `'t Hart`, not `MUSTERMANN`)
+
+### Fixed
+
+- `WalletClient` reads a credential's `raw` form and its claims from the per-credential detail endpoint when the listing omits them. eudi-dev 2.0.3 dropped `raw` and the claim values from `GET /api/credentials` (an overview card does not render them, and they cost megabytes on an image-heavy wallet), so `getCredentials()` returned entries whose `raw()` and `claims()` were null
+
 ## [2.2.1] - 2026-08-18
 
 ### Changed

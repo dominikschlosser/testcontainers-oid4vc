@@ -50,10 +50,24 @@ public class WalletClient {
             List<Map<String, Object>> raw = MAPPER.readValue(body, new TypeReference<>() {});
             return raw.stream()
                     .map(WalletClient::toCredential)
+                    .map(this::withDetailWhenSummaryOnly)
                     .collect(Collectors.toList());
         } catch (IOException e) {
             throw new WalletClientException("Failed to parse credentials response", e);
         }
+    }
+
+    /**
+     * The listing carries a summary of each credential (a claim count and the
+     * signature state), not the raw credential or its claims, which only the
+     * per-credential detail holds. This reads the detail so callers still get a
+     * complete {@link Credential}, and leaves an already complete summary alone.
+     */
+    private Credential withDetailWhenSummaryOnly(Credential summary) {
+        if (summary.raw() != null || summary.id() == null) {
+            return summary;
+        }
+        return getCredential(summary.id());
     }
 
     public Credential getCredential(String id) {
