@@ -781,6 +781,36 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void interactiveAuthorizationRaisesSeparateConsentForMidIssuancePresentation() throws Exception {
+        try (EudiWalletContainer vciWallet = new EudiWalletContainer()
+                .withVciVersion(VciVersion.V1_1)
+                .withoutAutoAccept()) {
+            vciWallet.start();
+            WalletClient client = vciWallet.client();
+
+            String offerUri = demoCredentialOffer(vciWallet,
+                    "?grant=authorization_code&authorization=presentation");
+            CompletableFuture<OfferResponse> submitted = client.submitCredentialOfferForConsent(offerUri);
+
+            // approving the offer is not consent to disclose: the PID
+            // presentation the issuer demands raises its own request, and the
+            // offer approval only returns once that request is answered too
+            ConsentRequest offer = client.awaitPendingRequest(Duration.ofSeconds(10));
+            assertThat(offer.type()).isEqualTo("issuance");
+            CompletableFuture<ApprovalResult> offerApproved = client.approveRequestAsync(offer.id());
+
+            ConsentRequest presentation = client.awaitPendingRequest(Duration.ofSeconds(10));
+            assertThat(presentation.type()).isEqualTo("issuance_presentation");
+            assertThat(presentation.matchedCredentials()).isNotEmpty();
+            client.approveRequest(presentation.id());
+
+            assertThat(offerApproved.get(10, TimeUnit.SECONDS).status()).isEqualTo("approved");
+            submitted.get(10, TimeUnit.SECONDS);
+            assertThat(client.hasCredentialWithType("urn:eudi-test:demo-ticket:1")).isTrue();
+        }
+    }
+
+    @Test
     void interactiveConsentPicksCredentialAndSelectsClaims() throws Exception {
         try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
             consentWallet.start();
@@ -873,6 +903,40 @@ class EudiWalletContainerTest {
                             && "mso_mdoc".equals(sentMap.get("format")));
             assertThat(sentMdoc).isTrue();
         }
+    }
+
+    @Test
+    void offerRequiringTransactionCodeNeedsTheCode() throws Exception {
+        WalletClient client = wallet.client();
+
+        // a real pre-authorized offer from the demo issuer, rewritten to
+        // demand a transaction code (the demo issuer itself never asks one)
+        HttpResponse<String> created = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(wallet.getBaseUrl() + "/issuer/api/offers"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        Map<String, Object> offerRef = MAPPER.readValue(created.body(), new TypeReference<>() {});
+        HttpResponse<String> offerDoc = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(wallet.getBaseUrl() + "/issuer/offer/" + offerRef.get("id")))
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        Map<String, Object> offer = MAPPER.readValue(offerDoc.body(), new TypeReference<>() {});
+        @SuppressWarnings("unchecked")
+        Map<String, Object> preAuthGrant = (Map<String, Object>)
+                ((Map<String, Object>) offer.get("grants"))
+                        .get("urn:ietf:params:oauth:grant-type:pre-authorized_code");
+        preAuthGrant.put("tx_code", Map.of("length", 4, "input_mode", "numeric"));
+        String offerUri = "openid-credential-offer://?credential_offer="
+                + java.net.URLEncoder.encode(MAPPER.writeValueAsString(offer), StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> client.acceptCredentialOffer(offerUri))
+                .isInstanceOf(WalletClientException.class)
+                .hasMessageContaining("transaction code");
+
+        OfferResponse accepted = client.acceptCredentialOffer(offerUri, "1234");
+        assertThat(accepted.rawBody()).contains("credential_id");
     }
 
     /**

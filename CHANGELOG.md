@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `ConsentApproval` and `approveRequest(id, ConsentApproval)`: approve a pending consent request with a specific credential per query (`pickCredential`), a specific credential set option (`chooseSetOption` and `skipOptionalSet`), only selected claims per credential (`selectClaims`), or a transaction code for an issuance offer that requires one (`txCode`). An empty approval keeps the wallet's own selection and behaves like `approveRequest(id)`
+- `approveRequestAsync(id[, ConsentApproval])` approves without blocking on the submission result, for approvals that unblock a further consent step. Approving an offer whose issuer demands a presentation (OpenID4VCI 1.1 interactive authorization) completes only once the raised `issuance_presentation` request is answered too
+- `acceptCredentialOffer(uri, txCode)` on the container and the client supplies the transaction code of a pre-authorized offer (OpenID4VCI §4.1.1). On a wallet without auto-accept the code travels with the approval instead, via `ConsentApproval.txCode`
 - `CredentialMatch`, `ConsentCredentialOptions`, `ConsentSetOptions` and `ConsentQueryOptions`, describing what a pending consent request matched and what it offers to choose from
 - `IssueRequest.signedBy(privateKey, certificateChain)` signs an issued credential with a caller-provided key and certificate chain instead of the wallet's issuer key (eudi-dev v2.2.0). The chain is embedded as the credential's `x5c` exactly as given, so the wallet holds a credential from an issuer it does not know, in SD-JWT or mdoc form
 

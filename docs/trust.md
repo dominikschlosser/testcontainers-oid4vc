@@ -19,7 +19,7 @@ String pidTrustListByDocType = client.getTrustListForDocType("eu.europa.ec.eudi.
 String customTrustListByVct = client.getTrustListForVct("urn:example:my-credential:1");
 ```
 
-`/api/trustlists` is a discovery endpoint. Each entry exposes a relative `path` plus an `advertisedUrl` / `url` alias. From Docker and Testcontainers callers, resolve `path` against the mapped wallet URL:
+`/api/trustlists` is a discovery endpoint. Each entry carries the trust list's relative `path` and an `advertisedUrl` built from the wallet's own base URL, which points inside the container and is not reachable from the test. Resolve `path` against the mapped wallet URL instead:
 
 ```java
 String reachableLocalTrustListUrl = client.getTrustLists().stream()
@@ -29,7 +29,7 @@ String reachableLocalTrustListUrl = client.getTrustLists().stream()
     .orElseThrow();
 ```
 
-`/api/trustlist` remains the backward-compatible PID-first endpoint, and `/api/trustlists/{id}` plus the `vct` / `doctype` selectors fetch the actual ETSI trust-list JWTs.
+The selector methods above return the ETSI trust-list JWT itself: by profile id, by SD-JWT credential type, or by mdoc document type.
 
 ## TLS certificates
 

@@ -2,18 +2,11 @@
 
 ## Startup options
 
-The container supports fluent configuration:
-
 ```java
 EudiWalletContainer wallet = new EudiWalletContainer()
-    .withStatusList()                                // enable the status list endpoint
+    .withStatusList()                                // enable the status list endpoint, issued credentials become revocable
     .withBaseUrl("http://wallet.example.test:8085")  // advertised HTTP base URL, the HTTPS host follows it
-    .withPreferredFormat(CredentialFormat.SD_JWT)    // preferred credential format
     .withSessionTranscript("iso")                    // mdoc session transcript: "oid4vp" (default) or "iso"
-    .withRequireEncryptedRequest()                   // require encrypted request objects (wallet_metadata)
-    .withHaip()                                      // enforce HAIP 1.0 compliance
-    .withStrictValidation()                          // fail flows on spec violations instead of tolerating them
-    .withVciVersion(VciVersion.V1_1)                 // OpenID4VCI feature level, enables interactive authorization
     .withVciClientId("my-wallet")                    // client id for OID4VCI authorization-code flows
     .withVciRedirectUri("http://localhost:8085/callback")
     .withPidType("urn:eudi:pid:de:1")                // generate the German PID instead of the country-independent one
@@ -21,27 +14,33 @@ EudiWalletContainer wallet = new EudiWalletContainer()
     .withoutDefaultPid();                            // start without the default PID credential
 ```
 
-`withVciVersion(VciVersion.V1_1)` starts the wallet at the OpenID4VCI 1.1 draft level. Against an issuer publishing an `authorization_challenge_endpoint`, the wallet then redeems an authorization-code offer by presenting a credential it holds instead of going through a browser redirect, with no redirect URI needed. The container's built-in demo issuer implements the issuer half at the same level.
+`withTemplatesDirectory(Path)` ships a folder of credential templates into the container, see [Credentials](credentials.md). `withHostAccess()` lets the wallet reach services on the Docker host, see [Networking](networking.md).
 
-## Runtime conformance switches
+## Conformance settings
 
-Validation mode, HAIP, the encrypted-request requirement and the OpenID4VCI feature level are also changeable at runtime, without restarting the container:
+Four settings control how strictly the wallet plays the protocol. Each has a startup option and a runtime setter, so a single container can serve tests with different requirements:
+
+| Setting | Startup | Runtime |
+|---|---|---|
+| Validation mode | `withStrictValidation()` | `setValidationMode(mode)` |
+| HAIP 1.0 enforcement | `withHaip()` | `setRequireHaip(flag)` |
+| Encrypted request objects | `withRequireEncryptedRequest()` | `setRequireEncryptedRequest(flag)` |
+| OpenID4VCI feature level | `withVciVersion(version)` | `setVciVersion(version)` |
+
+In the default `debug` mode the wallet tolerates spec violations by the issuer or verifier under test and logs them. In `strict` mode the violation fails the flow. `withHaip()` enforces HAIP 1.0 on top (x509_hash client id prefix, `direct_post.jwt`, DCQL, JAR, ES256), and `withRequireEncryptedRequest()` makes the wallet advertise an encryption key in its `wallet_metadata` and demand JWE request objects.
+
+`withVciVersion(VciVersion.V1_1)` moves the wallet to the OpenID4VCI 1.1 draft level, which enables interactive authorization: against an issuer publishing an `authorization_challenge_endpoint`, the wallet redeems an authorization-code offer by presenting a credential it holds instead of going through a browser redirect. See [Flows](flows.md#presentation-during-issuance-openid4vci-11) for the flow.
+
+Runtime changes hold until the container restarts. `resetConformance()` restores the startup values:
 
 ```java
 WalletClient client = wallet.client();
 client.setValidationMode(ValidationMode.STRICT);
-client.setRequireHaip(true);
-client.setRequireEncryptedRequest(true);
-client.setVciVersion(VciVersion.V1_1);
-client.resetConformance();      // restore the settings the wallet started with
+// run the strict part of the test
+client.resetConformance();
 ```
 
-The preferred credential format is switchable at runtime too:
-
-```java
-client.setPreferredFormat(CredentialFormat.MSO_MDOC);
-client.clearPreferredFormat();
-```
+The preferred credential format works the same way: `withPreferredFormat(CredentialFormat.SD_JWT)` at startup, `setPreferredFormat(format)` and `clearPreferredFormat()` at runtime.
 
 ## Custom PID claims
 

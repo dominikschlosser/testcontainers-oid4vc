@@ -1,10 +1,6 @@
 # Credentials
 
-All credential operations run through the `WalletClient`:
-
-```java
-WalletClient client = wallet.client();
-```
+Everything on this page runs on `WalletClient client = wallet.client()`.
 
 ## Listing and reading
 
@@ -39,7 +35,7 @@ Credential mdoc = client.issueCredential(IssueRequest.mdoc("org.iso.23220.photoi
     .claim("org.iso.23220.photoid.1:person_id", "12345"));
 ```
 
-`signedBy(privateKey, certificateChain)` signs the credential with your own key instead of the wallet's issuer key. The key is a PEM or JWK private key, the chain a PEM certificate list with the leaf first, embedded as the credential's `x5c` exactly as given. The wallet then holds a credential from an issuer it does not know, useful for negative tests and custom trust setups, and unlike the [SD-JWT builder](#sd-jwt-credential-builder) it works for mdoc credentials too:
+`signedBy(privateKey, certificateChain)` signs the credential with your own key instead of the wallet's issuer key. The key is a PEM or JWK private key, the chain a PEM certificate list with the leaf first, embedded as the credential's `x5c` exactly as given. The wallet then holds a credential from an issuer it does not know, for negative tests and custom trust setups, in SD-JWT or mdoc form:
 
 ```java
 Credential foreign = client.issueCredential(IssueRequest.sdJwt("urn:example:foreign:1")
@@ -97,7 +93,7 @@ client.importCredential(sdJwt);
 ECKey issuerKey = builder.getSigningKey();
 ```
 
-The builder signs on the host with a key it generates, and nothing reaches the wallet until you import the finished credential. For the same foreign-issuer effect through the wallet's own issue API, including mdoc form, use `signedBy(...)` as shown under [Issuing](#issuing).
+The builder signs on the host with a key it generates, and nothing reaches the wallet until you import the finished credential. `signedBy(...)` under [Issuing](#issuing) does the same through the wallet's issue API and also covers mdoc credentials.
 
 ## Deleting
 

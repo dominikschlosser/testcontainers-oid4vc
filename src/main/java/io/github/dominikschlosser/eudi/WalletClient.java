@@ -267,8 +267,33 @@ public class WalletClient {
      * selected claims per credential.
      */
     public ApprovalResult approveRequest(String id, ConsentApproval approval) {
-        String response = postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/approve",
-                toJson(approval.toBody()));
+        return toApprovalResult(postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/approve",
+                toJson(approval.toBody())));
+    }
+
+    /**
+     * Approves like {@link #approveRequest(String)}, returning the result
+     * asynchronously. Use this when the approval unblocks a further consent
+     * step: approving an offer whose issuer demands a presentation
+     * (OpenID4VCI 1.1 interactive authorization) returns only once that
+     * presentation request is answered too, so the approval and the answer
+     * must not wait on each other.
+     */
+    public CompletableFuture<ApprovalResult> approveRequestAsync(String id) {
+        return approveRequestAsync(id, ConsentApproval.approval());
+    }
+
+    /**
+     * Approves with a selection like {@link #approveRequest(String, ConsentApproval)},
+     * returning the result asynchronously.
+     */
+    public CompletableFuture<ApprovalResult> approveRequestAsync(String id, ConsentApproval approval) {
+        return postJsonAsync(baseUrl + "/api/requests/" + urlEncode(id) + "/approve",
+                toJson(approval.toBody()))
+                .thenApply(WalletClient::toApprovalResult);
+    }
+
+    private static ApprovalResult toApprovalResult(String response) {
         Map<String, Object> parsed = parseObject(response, "approval response");
         return new ApprovalResult(
                 (String) parsed.get("status"),
@@ -497,6 +522,16 @@ public class WalletClient {
      */
     public OfferResponse acceptCredentialOffer(String uri) {
         String body = postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri)));
+        return new OfferResponse(body);
+    }
+
+    /**
+     * Accepts a credential offer that requires a transaction code, supplying
+     * the code the issuer delivered separately (OpenID4VCI §4.1.1). Without
+     * the code the wallet refuses such an offer.
+     */
+    public OfferResponse acceptCredentialOffer(String uri, String txCode) {
+        String body = postJson(baseUrl + "/api/offers", toJson(Map.of("uri", uri, "tx_code", txCode)));
         return new OfferResponse(body);
     }
 

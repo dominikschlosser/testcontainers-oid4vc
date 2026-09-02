@@ -452,6 +452,13 @@ public class EudiWalletContainer extends GenericContainer<EudiWalletContainer> {
         return client().acceptCredentialOffer(uri);
     }
 
+    /**
+     * @see WalletClient#acceptCredentialOffer(String, String)
+     */
+    public OfferResponse acceptCredentialOffer(String uri, String txCode) {
+        return client().acceptCredentialOffer(uri, txCode);
+    }
+
     public PresentationResponse acceptPresentationRequest(String uri) {
         return client().acceptPresentationRequest(uri);
     }

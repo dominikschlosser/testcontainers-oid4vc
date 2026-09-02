@@ -19,7 +19,7 @@ Under the hood this uses Docker's `host-gateway` special address (`--add-host=lo
 
 ## Base URL
 
-`withBaseUrl(...)` sets the base URL the wallet advertises for its HTTP endpoints, for setups where the mapped Testcontainers address is not what the counterpart should see. The HTTPS endpoints reuse the same host:
+`withBaseUrl(...)` sets the base URL the wallet advertises in its metadata and offers. Use it when the counterpart must see a fixed address rather than the mapped Testcontainers one. The HTTPS endpoints reuse the same host:
 
 ```java
 EudiWalletContainer wallet = new EudiWalletContainer()
