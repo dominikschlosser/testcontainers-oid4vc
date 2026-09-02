@@ -219,13 +219,12 @@ public class WalletClient {
      * Returns the pending consent requests of a wallet running without
      * auto-accept.
      *
-     * <p>Since eudi-dev v1.18.0 consent is per channel: plain
-     * {@link #acceptCredentialOffer(String)} and
-     * {@link #acceptPresentationRequest(String)} submissions auto-accept even
-     * without auto-accept, because the API call itself is the caller's consent.
-     * Use {@link #submitCredentialOfferForConsent(String)} or
-     * {@link #submitPresentationRequestForConsent(String)} to produce a pending
-     * request.
+     * <p>Plain {@link #acceptCredentialOffer(String)} and
+     * {@link #acceptPresentationRequest(String)} submissions accept outright
+     * even without auto-accept, because the API call itself is the caller's
+     * decision. Use {@link #submitCredentialOfferForConsent(String)} or
+     * {@link #submitPresentationRequestForConsent(String)} to produce a
+     * pending request.
      */
     public List<ConsentRequest> getPendingRequests() {
         String body = get(baseUrl + "/api/requests");
@@ -240,11 +239,11 @@ public class WalletClient {
     }
 
     /**
-     * Approves a pending consent request, disclosing all matched claims, and
-     * waits for the submission result.
+     * Approves a pending consent request with the wallet's own selection,
+     * disclosing all matched claims, and waits for the submission result.
      */
     public ApprovalResult approveRequest(String id) {
-        return approveRequest(id, null);
+        return approveRequest(id, ConsentApproval.approval());
     }
 
     /**
@@ -252,10 +251,24 @@ public class WalletClient {
      * per credential id, and waits for the submission result.
      */
     public ApprovalResult approveRequest(String id, Map<String, List<String>> selectedClaims) {
-        String body = selectedClaims == null
-                ? toJson(Map.of())
-                : toJson(Map.of("selected_claims", selectedClaims));
-        String response = postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/approve", body);
+        ConsentApproval approval = ConsentApproval.approval();
+        if (selectedClaims != null) {
+            selectedClaims.forEach((credentialId, claims) ->
+                    approval.selectClaims(credentialId, claims == null ? List.of() : claims));
+        }
+        return approveRequest(id, approval);
+    }
+
+    /**
+     * Approves a pending consent request with the given selection and waits
+     * for the submission result. The approval can present other credentials
+     * than the wallet's first choice, referencing the request's
+     * {@link ConsentRequest#credentialOptions()}, and can disclose only
+     * selected claims per credential.
+     */
+    public ApprovalResult approveRequest(String id, ConsentApproval approval) {
+        String response = postJson(baseUrl + "/api/requests/" + urlEncode(id) + "/approve",
+                toJson(approval.toBody()));
         Map<String, Object> parsed = parseObject(response, "approval response");
         return new ApprovalResult(
                 (String) parsed.get("status"),
@@ -653,14 +666,79 @@ public class WalletClient {
         );
     }
 
+    @SuppressWarnings("unchecked")
     private static ConsentRequest toConsentRequest(Map<String, Object> raw) {
+        List<CredentialMatch> matched = raw.get("matched_credentials") instanceof List<?> rawMatches
+                ? rawMatches.stream().map(WalletClient::toCredentialMatch).collect(Collectors.toList())
+                : List.of();
+        List<String> purposes = stringList(raw.get("purposes"));
+        ConsentCredentialOptions options = raw.get("credential_options") instanceof Map<?, ?> rawOptions
+                ? toConsentCredentialOptions((Map<String, Object>) rawOptions)
+                : null;
         return new ConsentRequest(
                 (String) raw.get("id"),
                 (String) raw.get("type"),
                 (String) raw.get("status"),
                 (String) raw.get("client_id"),
-                (String) raw.get("created_at")
+                (String) raw.get("created_at"),
+                matched,
+                purposes,
+                options
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ConsentCredentialOptions toConsentCredentialOptions(Map<String, Object> raw) {
+        List<ConsentSetOptions> sets = raw.get("sets") instanceof List<?> rawSets
+                ? rawSets.stream()
+                        .map(set -> (Map<String, Object>) set)
+                        .map(set -> new ConsentSetOptions(
+                                set.get("options") instanceof List<?> options
+                                        ? (List<List<String>>) options
+                                        : List.of(),
+                                Boolean.TRUE.equals(set.get("optional"))))
+                        .collect(Collectors.toList())
+                : List.of();
+        List<ConsentQueryOptions> queries = raw.get("queries") instanceof List<?> rawQueries
+                ? rawQueries.stream()
+                        .map(query -> (Map<String, Object>) query)
+                        .map(query -> new ConsentQueryOptions(
+                                (String) query.get("id"),
+                                query.get("candidates") instanceof List<?> candidates
+                                        ? candidates.stream()
+                                                .map(WalletClient::toCredentialMatch)
+                                                .collect(Collectors.toList())
+                                        : List.of()))
+                        .collect(Collectors.toList())
+                : List.of();
+        return new ConsentCredentialOptions(sets, queries);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CredentialMatch toCredentialMatch(Object raw) {
+        if (!(raw instanceof Map<?, ?> rawMap)) {
+            throw new WalletClientException("Failed to parse credential match");
+        }
+        Map<String, Object> map = (Map<String, Object>) rawMap;
+        return new CredentialMatch(
+                (String) map.get("query_id"),
+                (String) map.get("credential_id"),
+                (String) map.get("format"),
+                (String) map.get("vct"),
+                (String) map.get("doctype"),
+                map.get("claims") instanceof Map<?, ?> claims
+                        ? (Map<String, Object>) claims
+                        : Map.of(),
+                stringList(map.get("selected_keys")),
+                Boolean.TRUE.equals(map.get("untrusted_authority")),
+                stringList(map.get("empty_array_claims")),
+                stringList(map.get("missing_claims"))
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> stringList(Object raw) {
+        return raw instanceof List<?> list ? (List<String>) list : List.of();
     }
 
     private static PresentationResponse toPresentationResponse(String body) {

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-09-02
+
+### Changed
+
+- pinned the default wallet image to `ghcr.io/dominikschlosser/eudi-dev:v2.2.0` (from `v2.0.7`). The new wallet checks relying party registration certificates against the ARF content rules, offers credentials a request's `trusted_authorities` did not match in debug mode (flagged in the consent dialog), discloses an empty array for a claim path that selects selectively disclosable array elements without naming them, names `response_types_supported` and `response_modes_supported` in its wallet metadata, cites the violated specification uniformly in validation findings, and warns about undefined request fields
+- `ConsentRequest` now carries what the consent dialog shows: `matchedCredentials()` (the credentials the wallet would present on its own), `purposes()` (what the verifier registered the data request for), and `credentialOptions()` (every credential that could answer each query). The previous five-component constructor remains available and leaves the new components empty
+- `approveRequest(id, null)` with a bare null literal no longer compiles because the selected-claims overload gained a `ConsentApproval` sibling. Call `approveRequest(id)` instead, which does the same
+
+### Added
+
+- `ConsentApproval` and `approveRequest(id, ConsentApproval)`: approve a pending consent request with a specific credential per query (`pickCredential`), a specific credential set option (`chooseSetOption` and `skipOptionalSet`), only selected claims per credential (`selectClaims`), or a transaction code for an issuance offer that requires one (`txCode`). An empty approval keeps the wallet's own selection and behaves like `approveRequest(id)`
+- `CredentialMatch`, `ConsentCredentialOptions`, `ConsentSetOptions` and `ConsentQueryOptions`, describing what a pending consent request matched and what it offers to choose from
+- `IssueRequest.signedBy(privateKey, certificateChain)` signs an issued credential with a caller-provided key and certificate chain instead of the wallet's issuer key (eudi-dev v2.2.0). The chain is embedded as the credential's `x5c` exactly as given, so the wallet holds a credential from an issuer it does not know, in SD-JWT or mdoc form
+
 ## [2.3.0] - 2026-08-28
 
 ### Changed

@@ -55,6 +55,8 @@ public class IssueRequest {
     private String statusListUri;
     private Integer statusListIdx;
     private String trustProfile;
+    private String signingKey;
+    private String signingCert;
 
     private IssueRequest() {
     }
@@ -185,6 +187,22 @@ public class IssueRequest {
         return this;
     }
 
+    /**
+     * Signs the credential with the given key and certificate chain instead
+     * of the wallet's issuer key (since eudi-dev v2.2.0). The key is a PEM or
+     * JWK private key, the chain a PEM certificate list with the leaf first,
+     * embedded as the credential's {@code x5c} exactly as given. The leaf
+     * must certify the key. The request's trust profile and registration
+     * metadata are then not applied, so the wallet holds a credential from an
+     * issuer it does not know, like one imported after
+     * {@link SdJwtCredentialBuilder}, in either format.
+     */
+    public IssueRequest signedBy(String privateKey, String certificateChain) {
+        this.signingKey = privateKey;
+        this.signingCert = certificateChain;
+        return this;
+    }
+
     Map<String, Object> toBody() {
         Map<String, Object> body = new LinkedHashMap<>();
         if (format != null) {
@@ -231,6 +249,12 @@ public class IssueRequest {
         }
         if (trustProfile != null) {
             body.put("trust_profile", trustProfile);
+        }
+        if (signingKey != null) {
+            body.put("signing_key", signingKey);
+        }
+        if (signingCert != null) {
+            body.put("signing_cert", signingCert);
         }
         return body;
     }

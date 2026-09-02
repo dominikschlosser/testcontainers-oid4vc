@@ -557,6 +557,33 @@ class EudiWalletContainerTest {
     }
 
     @Test
+    void issueCredentialWithSigningOverrideEmbedsGivenChain() throws Exception {
+        WalletClient client = wallet.client();
+        String key = Files.readString(Path.of("src/test/resources/override-issuer-key.pem"));
+        String cert = Files.readString(Path.of("src/test/resources/override-issuer-cert.pem"));
+
+        Credential issued = client.issueCredential(IssueRequest.sdJwt("urn:test:override:1")
+                .claim("given_name", "Jane")
+                .signedBy(key, cert));
+
+        try {
+            String headerJson = new String(
+                    Base64.getUrlDecoder().decode(issued.raw().split("\\.")[0]),
+                    StandardCharsets.UTF_8);
+            Map<String, Object> header = MAPPER.readValue(headerJson, new TypeReference<>() {});
+            @SuppressWarnings("unchecked")
+            List<String> x5c = (List<String>) header.get("x5c");
+            String certBase64 = cert
+                    .replace("-----BEGIN CERTIFICATE-----", "")
+                    .replace("-----END CERTIFICATE-----", "")
+                    .replaceAll("\\s", "");
+            assertThat(x5c).containsExactly(certBase64);
+        } finally {
+            client.deleteCredential(issued.id());
+        }
+    }
+
+    @Test
     void issuedCredentialCarriesResolvableStatus() {
         WalletClient client = wallet.client();
 
@@ -751,6 +778,133 @@ class EudiWalletContainerTest {
             // authorization ran end to end
             assertThat(client.hasCredentialWithType("urn:eudi-test:demo-ticket:1")).isTrue();
         }
+    }
+
+    @Test
+    void interactiveConsentPicksCredentialAndSelectsClaims() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+
+            // a second SD-JWT PID, so the verifier's query has two candidates
+            Credential second = client.issueCredential(IssueRequest.fromTemplate("pid-sdjwt")
+                    .claim("given_name", "Second"));
+            String sdJwtPidRequest = "{\"type\": \"pid\", \"format\": \"sd-jwt\"}";
+
+            // pick the second credential instead of the wallet's first choice
+            Map<String, Object> request = createVerifierRequest(consentWallet, sdJwtPidRequest);
+            CompletableFuture<PresentationResponse> submitted =
+                    client.submitPresentationRequestForConsent((String) request.get("scheme_uri"));
+
+            ConsentRequest pending = client.awaitPendingRequest(Duration.ofSeconds(10));
+            assertThat(pending.type()).isEqualTo("presentation");
+            assertThat(pending.matchedCredentials()).isNotEmpty();
+            ConsentQueryOptions query = pending.credentialOptions().query("pid");
+            assertThat(query.candidates())
+                    .extracting(CredentialMatch::credentialId)
+                    .contains(second.id());
+
+            ApprovalResult result = client.approveRequest(pending.id(), ConsentApproval.approval()
+                    .pickCredential(query.id(), second.id()));
+            assertThat(result.status()).isEqualTo("approved");
+            submitted.get(10, TimeUnit.SECONDS);
+
+            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("id"));
+            assertThat(status.get("status")).isEqualTo("verified");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> claims = (Map<String, Object>) status.get("claims");
+            assertThat(claims.get("given_name")).isEqualTo("Second");
+
+            // disclose only given_name: the verifier notices that the
+            // requested family_name was withheld
+            Map<String, Object> partialRequest = createVerifierRequest(consentWallet, sdJwtPidRequest);
+            CompletableFuture<PresentationResponse> partialSubmitted =
+                    client.submitPresentationRequestForConsent((String) partialRequest.get("scheme_uri"));
+
+            ConsentRequest partialPending = client.awaitPendingRequest(Duration.ofSeconds(10));
+            ApprovalResult partialResult = client.approveRequest(partialPending.id(),
+                    ConsentApproval.approval()
+                            .pickCredential("pid", second.id())
+                            .selectClaims(second.id(), "given_name"));
+            assertThat(partialResult.status()).isEqualTo("approved");
+            partialSubmitted.get(10, TimeUnit.SECONDS);
+
+            Map<String, Object> partialStatus =
+                    verifierRequestStatus(consentWallet, (String) partialRequest.get("id"));
+            assertThat(partialStatus.get("status")).isEqualTo("failed");
+            assertThat((String) partialStatus.get("error")).contains("family_name");
+        }
+    }
+
+    @Test
+    void interactiveConsentChoosesCredentialSetOption() throws Exception {
+        try (EudiWalletContainer consentWallet = new EudiWalletContainer().withoutAutoAccept()) {
+            consentWallet.start();
+            WalletClient client = consentWallet.client();
+
+            // both formats requested: one credential set whose options are
+            // the SD-JWT PID and the mdoc PID
+            Map<String, Object> request = createVerifierRequest(consentWallet, "{\"type\": \"pid\"}");
+            CompletableFuture<PresentationResponse> submitted =
+                    client.submitPresentationRequestForConsent((String) request.get("scheme_uri"));
+
+            ConsentRequest pending = client.awaitPendingRequest(Duration.ofSeconds(10));
+            // the wallet's own choice is the first option, the SD-JWT PID
+            assertThat(pending.matchedCredentials().getFirst().format()).isEqualTo("dc+sd-jwt");
+            List<ConsentSetOptions> sets = pending.credentialOptions().sets();
+            assertThat(sets).hasSize(1);
+            List<List<String>> options = sets.getFirst().options();
+            int mdocOption = options.indexOf(List.of("pid_mdoc"));
+            assertThat(mdocOption).isNotNegative();
+
+            ApprovalResult result = client.approveRequest(pending.id(), ConsentApproval.approval()
+                    .chooseSetOption(0, mdocOption));
+            assertThat(result.status()).isEqualTo("approved");
+            submitted.get(10, TimeUnit.SECONDS);
+
+            Map<String, Object> status = verifierRequestStatus(consentWallet, (String) request.get("id"));
+            assertThat(status.get("status")).isEqualTo("verified");
+            // the activity log names what was sent: the mdoc PID, not the
+            // SD-JWT one the wallet would have chosen on its own
+            boolean sentMdoc = client.getActivityLog().stream()
+                    .filter(entry -> entry.details().get("sent_credentials") instanceof List)
+                    .flatMap(entry -> ((List<?>) entry.details().get("sent_credentials")).stream())
+                    .anyMatch(sent -> sent instanceof Map<?, ?> sentMap
+                            && "mso_mdoc".equals(sentMap.get("format")));
+            assertThat(sentMdoc).isTrue();
+        }
+    }
+
+    /**
+     * Creates a presentation request with the wallet's own built-in demo
+     * verifier (mounted at {@code /verifier}), so the consent tests need no
+     * external verifier.
+     */
+    private static Map<String, Object> createVerifierRequest(EudiWalletContainer container, String body)
+            throws Exception {
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(container.getBaseUrl() + "/verifier/api/requests"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        assertThat(response.statusCode()).isBetween(200, 299);
+        return MAPPER.readValue(response.body(), new TypeReference<>() {});
+    }
+
+    private static Map<String, Object> verifierRequestStatus(EudiWalletContainer container, String id)
+            throws Exception {
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(container.getBaseUrl() + "/verifier/api/requests/" + id))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        assertThat(response.statusCode()).isBetween(200, 299);
+        return MAPPER.readValue(response.body(), new TypeReference<>() {});
     }
 
     /**
